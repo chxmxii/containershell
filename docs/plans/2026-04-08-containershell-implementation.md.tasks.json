@@ -1,0 +1,17 @@
+{
+  "planPath": "docs/plans/2026-04-08-containershell-implementation.md",
+  "tasks": [
+    {"id": 3, "subject": "Task 0: Project scaffolding and Go module init", "status": "completed"},
+    {"id": 4, "subject": "Task 1: CRI client abstraction (containerd + CRI-O)", "status": "completed", "blockedBy": [3]},
+    {"id": 5, "subject": "Task 2: Container resolver (ID/name/pod lookup)", "status": "completed", "blockedBy": [4]},
+    {"id": 6, "subject": "Task 3: Namespace helpers for nsenter", "status": "completed", "blockedBy": [3]},
+    {"id": 7, "subject": "Task 4: 3-tier shell strategy", "status": "completed", "blockedBy": [4, 6]},
+    {"id": 8, "subject": "Task 5: Interactive container picker TUI", "status": "completed", "blockedBy": [3]},
+    {"id": 9, "subject": "Task 6: Shell subcommand (wires up 3-tier fallback)", "status": "completed", "blockedBy": [4, 5, 7, 8]},
+    {"id": 10, "subject": "Task 7: Debug toolkit subcommands", "status": "completed", "blockedBy": [4, 7, 9]},
+    {"id": 11, "subject": "Task 8: Shell completion subcommand", "status": "completed", "blockedBy": [3]},
+    {"id": 12, "subject": "Task 9: Makefile and build polish", "status": "completed", "blockedBy": [9]},
+    {"id": 13, "subject": "Task 10: Final integration test and verification", "status": "completed", "blockedBy": [10, 11, 12]}
+  ],
+  "lastUpdated": "2026-04-08T15:04:00Z"
+}
