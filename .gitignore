@@ -1,8 +1,10 @@
 # Binary (root level only)
-/containershell
+./containershell
 
-# Kiro specs (local dev)
-.kiro/
+# Kiro specs
+.kiro/specs/cs/tasks.md
+.kiro/specs/cs/design.md
+
 
 # Build artifacts
 bin/
