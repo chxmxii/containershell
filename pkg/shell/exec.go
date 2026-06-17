@@ -11,7 +11,7 @@ import (
 // ExecStrategy attempts to exec a shell directly inside the container via the runtime.
 type ExecStrategy struct{}
 
-func (s *ExecStrategy) Name() string { return "exec" }
+func (s *ExecStrategy) Name() string { return "CRI exec" }
 
 func (s *ExecStrategy) Try(ctx context.Context, rt runtime.Runtime, container *runtime.ContainerInfo, verbose bool) error {
 	// Probe which shells exist
