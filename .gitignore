@@ -1,8 +1,8 @@
-# Binary
-containershell
+# Binary (root level only)
+/containershell
 
-#kiro 
-.kiro
+# Kiro specs (local dev)
+.kiro/
 
 # Build artifacts
 bin/
