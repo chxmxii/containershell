@@ -1,98 +1,78 @@
 # ContainerShell
 
-Swiss Army knife for container debugging. Guarantees shell access to any running container (Including Distroless containers) using a 3-tier fallback strategy, plus a full debugging toolkit.
+Shell acquisition tool for running containers, including distroless images. Implements a 3-tier fallback against the container runtime's API. Supports containerd, CRI-O, Docker, and Podman via runtime auto-detection.
 
-Works with containerd, CRI-O, Docker, and Podman. Auto-detects the runtime.
+## Fallback chain
 
-## How It Works
-
-ContainerShell tries three methods to get you a shell, falling through automatically:
-
-1. **Exec** -- runs a shell directly inside the container (probes for bash, sh, ash, zsh)
-2. **Debug container** -- injects a K8s ephemeral container or CRI-level debug sidecar
-3. **Nsenter** -- enters the container's namespaces from the host (requires root)
-
-If one tier fails, the next one kicks in. You always get a shell.
+1. **Exec** `exec(2)` into the container's mount namespace; probes `bash`, `sh`, `ash`, `zsh` in order until one resolves
+2. **Debug container** on `ENOENT` for all probed binaries, injects a Kubernetes ephemeral container, or a CRI-level sidecar on non-K8s runtimes, sharing the target's PID and network namespaces
+3. **Nsenter** if the runtime rejects the sidecar injection, attaches directly to the container's `pid`, `mnt`, `net`, `uts`, and `ipc` namespaces from the host via `setns(2)`; requires `CAP_SYS_ADMIN`
 
 ## Install
 
 ```bash
 git clone https://github.com/chxmxii/containershell.git
-cd containershell
-make build
-sudo make install
+cd containershell && make build && sudo make install
 ```
-
 Requires Go 1.25+.
 
 ## Usage
 
 ```bash
-# Interactive shell (auto-picks runtime + container via TUI picker)
-containershell
-
-# Target a specific container
+# interactive tui
+containershell <dasboard/ui>
 containershell --name nginx
-containershell --pod web-pod --namespace production
-containershell --container-id abc123def456
-
-# Specify runtime explicitly
+containershell --pod web-pod --namespace prod
 containershell --runtime docker --name myapp
-containershell --socket /run/containerd/containerd.sock
 ```
 
-## Debug Commands
+## Debug toolkit
+
+Each subcommand operates on the resolved container's namespaces or cgroup directly.
 
 ```bash
-containershell logs --follow --tail 50      # Stream container logs
-containershell inspect                       # Container metadata, config, mounts
-containershell top                           # Processes inside the container
-containershell env                           # Environment variables
-containershell netstat                       # Network connections and listeners
-containershell tcpdump -i eth0 -c 100       # Packet capture
-containershell strace --follow-forks         # Syscall tracing
-containershell fs --path /app --recursive    # Browse container filesystem
-containershell cp --dir from --src /etc/hosts --dst ./hosts  # Copy files out
-containershell cp --dir to --src ./config.yaml --dst /app/   # Copy files in
-containershell portfw --local 8080 --remote 80               # Port forwarding
+containershell logs --follow --tail 50
+containershell inspect
+containershell top
+containershell env
+containershell netstat
+containershell tcpdump -i eth0 -c 100
+containershell strace --follow-forks
+containershell fs --path /app --recursive
+containershell cp --dir from --src /etc/hosts --dst ./hosts
+containershell cp --dir to   --src ./config.yaml --dst /app/
+containershell portfw --local 8080 --remote 80
 ```
+All commands accept `--name`, `--pod`, `--namespace`, `--container-id`. No target → interactive picker.
 
-All debug commands accept the same targeting flags (`--name`, `--pod`, `--namespace`, `--container-id`). If no target is specified, the interactive picker launches.
+## Runtimes
 
-## Supported Runtimes
+| Runtime | API | Default socket |
+|---|---|---|
+| containerd | CRI / containerd API | `/run/containerd/containerd.sock` |
+| CRI-O | CRI | `/var/run/crio/crio.sock` |
+| Docker | Docker Engine API | `/var/run/docker.sock` |
+| Podman | libpod API | `/run/podman/podman.sock` |
 
-| Runtime | Detection | Socket |
-|---------|-----------|--------|
-| containerd | auto | `/run/containerd/containerd.sock` |
-| CRI-O | auto | `/var/run/crio/crio.sock` |
-| Docker | auto | `/var/run/docker.sock` |
-| Podman | auto | `/run/podman/podman.sock` |
+Rootless sockets resolved via `$XDG_RUNTIME_DIR` are probed as a fallback.
 
-Rootless sockets (via `$XDG_RUNTIME_DIR`) are also probed automatically.
-
-## Shell Completions
+## Completions
 
 ```bash
-# Bash
 source <(containershell completion bash)
-
-# Zsh
 source <(containershell completion zsh)
-
-# Fish
 containershell completion fish | source
 ```
 
 ## Build
 
 ```bash
-make build       # Build binary with version info
-make test        # Run tests
-make lint        # Run golangci-lint
-make install     # Install to /usr/local/bin
-make clean       # Remove binary
+make build   # build with version info
+make test    # run tests
+make lint     # golangci-lint
+make install # install to /usr/local/bin
+make clean   # remove binary
 ```
 
 ## License
-
 MIT
