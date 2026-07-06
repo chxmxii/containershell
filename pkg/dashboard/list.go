@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/containershell/containershell/pkg/runtime"
 )
 
@@ -221,10 +222,11 @@ func (m ListModel) View() string {
 		b.WriteString("\n")
 	}
 
-	// Render column headers
-	header := fmt.Sprintf("  %-20s %-20s %-12s %-10s %-8s",
-		"NAME", "POD", "NAMESPACE", "STATE", "AGE")
-	b.WriteString(listDimStyle.Render(header))
+	// Compute a column layout that fits the panel width, then render the header
+	// with it so the header and rows always stay aligned and never wrap.
+	cols := m.columns()
+	header := renderListRow(cols, "  ", "NAME", "POD", "NAMESPACE", "STATE", "AGE")
+	b.WriteString(listDimStyle.Render(clipLine(header, m.width)))
 	b.WriteString("\n")
 
 	// Handle error state
@@ -256,16 +258,20 @@ func (m ListModel) View() string {
 
 	for i := m.offset; i < end; i++ {
 		c := m.filtered[i]
-		age := formatAge(time.Since(c.CreatedAt))
-		name := truncateStr(c.Name, 20)
-		pod := truncateStr(c.PodName, 20)
-		ns := truncateStr(c.Namespace, 12)
-		state := truncateStr(c.State, 10)
 
-		line := fmt.Sprintf("  %-20s %-20s %-12s %-10s %-8s", name, pod, ns, state, age)
+		marker := "  "
+		if i == m.cursor {
+			marker = "▸ "
+		}
+
+		line := renderListRow(cols, marker,
+			c.Name, c.PodName, c.Namespace, c.State, formatAge(time.Since(c.CreatedAt)))
+		// Final guard: never exceed the panel width, so a row can never wrap
+		// onto a second line and desync the scroll viewport.
+		line = clipLine(line, m.width)
 
 		if i == m.cursor {
-			b.WriteString(listSelectedStyle.Render("▸ " + line[2:]))
+			b.WriteString(listSelectedStyle.Render(line))
 		} else {
 			b.WriteString(listNormalStyle.Render(line))
 		}
@@ -349,15 +355,146 @@ func formatAge(d time.Duration) string {
 	}
 }
 
-// truncateStr truncates a string to n characters, adding "..." if truncated.
-func truncateStr(s string, n int) string {
-	if len(s) <= n {
+// Column width bounds. The name, pod, and namespace columns are flexible and
+// grow toward their ideal width as space allows; state and age are fixed. When
+// the panel is too narrow for every column, columns are dropped in reverse
+// priority so the most useful fields (name, state, age) survive.
+const (
+	listMarkerWidth = 2 // "▸ " selection marker (or blank indent)
+	listColGap      = 1 // single space between columns
+
+	colNameMin, colNameIdeal = 6, 28
+	colPodMin, colPodIdeal   = 6, 22
+	colNsMin, colNsIdeal     = 6, 14
+	colStateWidth            = 8
+	colAgeWidth              = 6
+)
+
+// listColumns holds the rendered width of each list column. A width of 0 hides
+// the column, either because there is no room or no container has that field.
+type listColumns struct {
+	name, pod, ns, state, age int
+}
+
+// columns computes the column layout for the current panel width and container
+// set. Pod and namespace columns are only offered when at least one container
+// populates them (e.g. Kubernetes-managed containers), so plain Docker/Podman
+// lists give that space to the name instead.
+func (m ListModel) columns() listColumns {
+	hasPod, hasNs := false, false
+	for i := range m.filtered {
+		if m.filtered[i].PodName != "" {
+			hasPod = true
+		}
+		if m.filtered[i].Namespace != "" {
+			hasNs = true
+		}
+		if hasPod && hasNs {
+			break
+		}
+	}
+	return computeColumns(m.width, hasPod, hasNs)
+}
+
+// computeColumns allocates column widths that fit within a panel of the given
+// content width. The returned widths (plus the marker and inter-column gaps)
+// are guaranteed to never exceed width, so an assembled row cannot wrap.
+func computeColumns(width int, hasPod, hasNs bool) listColumns {
+	var cols listColumns
+
+	budget := width - listMarkerWidth
+	if budget < 1 {
+		cols.name = 1 // degenerate width; the row is clipped when rendered
+		return cols
+	}
+
+	// The name column is always present; start it at its minimum.
+	cols.name = min(colNameMin, budget)
+	used := cols.name
+
+	// add reserves w columns plus a leading gap if it fits the remaining budget.
+	add := func(w int) bool {
+		need := listColGap + w
+		if used+need > budget {
+			return false
+		}
+		used += need
+		return true
+	}
+
+	// Inclusion priority (name is already in): state, age, namespace, pod.
+	if add(colStateWidth) {
+		cols.state = colStateWidth
+	}
+	if add(colAgeWidth) {
+		cols.age = colAgeWidth
+	}
+	if hasNs && add(colNsMin) {
+		cols.ns = colNsMin
+	}
+	if hasPod && add(colPodMin) {
+		cols.pod = colPodMin
+	}
+
+	// Distribute any leftover space to the flexible columns, up to their ideals.
+	leftover := budget - used
+	grow := func(cur *int, ideal int) {
+		if *cur == 0 {
+			return
+		}
+		if take := min(ideal-*cur, leftover); take > 0 {
+			*cur += take
+			leftover -= take
+		}
+	}
+	grow(&cols.name, colNameIdeal)
+	grow(&cols.pod, colPodIdeal)
+	grow(&cols.ns, colNsIdeal)
+
+	return cols
+}
+
+// renderListRow assembles one list line: the marker followed by each visible
+// column, single-space separated. Values are padded or truncated to fit their
+// column so all rows align.
+func renderListRow(cols listColumns, marker, name, pod, ns, state, age string) string {
+	parts := make([]string, 0, 5)
+	parts = append(parts, fitCol(name, cols.name))
+	if cols.pod > 0 {
+		parts = append(parts, fitCol(pod, cols.pod))
+	}
+	if cols.ns > 0 {
+		parts = append(parts, fitCol(ns, cols.ns))
+	}
+	if cols.state > 0 {
+		parts = append(parts, fitCol(state, cols.state))
+	}
+	if cols.age > 0 {
+		parts = append(parts, fitCol(age, cols.age))
+	}
+	return marker + strings.Join(parts, " ")
+}
+
+// fitCol pads or truncates s to exactly w display columns, accounting for wide
+// runes and any ANSI escape sequences.
+func fitCol(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	s = ansi.Truncate(s, w, "")
+	if pad := w - ansi.StringWidth(s); pad > 0 {
+		s += strings.Repeat(" ", pad)
+	}
+	return s
+}
+
+// clipLine truncates s to at most w display columns to prevent line wrapping.
+// A non-positive width returns s unchanged (the width is not yet known).
+func clipLine(s string, w int) string {
+	if w <= 0 {
 		return s
 	}
-	if n <= 3 {
-		return s[:n]
-	}
-	return s[:n-3] + "..."
+	return ansi.Truncate(s, w, "")
 }
 
 

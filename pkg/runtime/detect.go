@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RuntimeType identifies a container runtime backend.
@@ -31,7 +32,18 @@ func DefaultSocketCandidates() []SocketCandidate {
 		{"/var/run/crio/crio.sock", RuntimeCRI, "CRI-O"},
 		{"/run/crio/crio.sock", RuntimeCRI, "CRI-O"},
 		{"/var/run/docker.sock", RuntimeDocker, "Docker"},
+		{"/run/docker.sock", RuntimeDocker, "Docker"},
 		{"/run/podman/podman.sock", RuntimePodman, "Podman"},
+		{"/var/run/podman/podman.sock", RuntimePodman, "Podman"},
+	}
+
+	// Docker Desktop and rootless installs place the socket under the user's
+	// home or XDG runtime directory rather than /var/run.
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates,
+			SocketCandidate{filepath.Join(home, ".docker", "run", "docker.sock"), RuntimeDocker, "Docker Desktop"},
+			SocketCandidate{filepath.Join(home, ".docker", "desktop", "docker.sock"), RuntimeDocker, "Docker Desktop"},
+		)
 	}
 
 	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
@@ -47,18 +59,33 @@ func DefaultSocketCandidates() []SocketCandidate {
 	return candidates
 }
 
-// DetectSocket finds the first available socket, optionally filtered by runtime type.
-func DetectSocket(socketPath string, runtimeType RuntimeType) (string, RuntimeType, error) {
-	if socketPath != "" {
-		if _, err := os.Stat(socketPath); err != nil {
-			return "", "", fmt.Errorf("specified socket not found: %s: %w", socketPath, err)
+// DetectSocket resolves a runtime endpoint, honoring in order: an explicit
+// endpoint (from --socket), the DOCKER_HOST/CONTAINER_HOST environment, then a
+// probe of well-known socket locations. The returned endpoint is either a
+// filesystem socket path or a scheme-qualified host URL (e.g. tcp://host:2375)
+// understood by the runtime client.
+func DetectSocket(endpoint string, runtimeType RuntimeType) (string, RuntimeType, error) {
+	// 1. An explicit endpoint always wins.
+	if endpoint != "" {
+		ep, rt, err := resolveEndpoint(endpoint, runtimeType)
+		if err != nil {
+			return "", "", fmt.Errorf("specified socket %q: %w", endpoint, err)
 		}
-		if runtimeType == RuntimeAuto {
-			runtimeType = inferRuntimeType(socketPath)
-		}
-		return socketPath, runtimeType, nil
+		return ep, rt, nil
 	}
 
+	// 2. DOCKER_HOST / CONTAINER_HOST — how Docker and Podman advertise a
+	//    non-default daemon location. This is the common reason auto-detection
+	//    would otherwise miss a daemon whose socket is not in a standard path.
+	if envEP, envType, envVar := endpointFromEnv(runtimeType); envEP != "" {
+		ep, rt, err := resolveEndpoint(envEP, envType)
+		if err != nil {
+			return "", "", fmt.Errorf("%s=%q: %w", envVar, envEP, err)
+		}
+		return ep, rt, nil
+	}
+
+	// 3. Probe well-known socket paths on the filesystem.
 	for _, c := range DefaultSocketCandidates() {
 		if runtimeType != RuntimeAuto && c.RuntimeType != runtimeType {
 			continue
@@ -68,7 +95,76 @@ func DetectSocket(socketPath string, runtimeType RuntimeType) (string, RuntimeTy
 		}
 	}
 
-	return "", "", fmt.Errorf("no container runtime socket found (tried CRI, Docker, Podman paths; use --socket to specify)")
+	return "", "", fmt.Errorf("no container runtime socket found (checked DOCKER_HOST/CONTAINER_HOST and known CRI, Docker, and Podman socket paths); use --socket to specify one")
+}
+
+// endpointFromEnv returns the endpoint advertised via the environment for the
+// requested runtime type (or the first one found when auto), the runtime type
+// it implies, and the variable it came from. The endpoint is empty when nothing
+// applicable is set. CRI has no such convention and is never sourced here.
+func endpointFromEnv(runtimeType RuntimeType) (endpoint string, rtType RuntimeType, envVar string) {
+	try := func(name string, t RuntimeType) bool {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			endpoint, rtType, envVar = v, t, name
+			return true
+		}
+		return false
+	}
+
+	switch runtimeType {
+	case RuntimeDocker:
+		try("DOCKER_HOST", RuntimeDocker)
+	case RuntimePodman:
+		// Podman's native variable is CONTAINER_HOST, but it also honors
+		// DOCKER_HOST for Docker-CLI compatibility.
+		_ = try("CONTAINER_HOST", RuntimePodman) || try("DOCKER_HOST", RuntimePodman)
+	case RuntimeAuto:
+		_ = try("DOCKER_HOST", RuntimeDocker) || try("CONTAINER_HOST", RuntimePodman)
+	}
+	return
+}
+
+// resolveEndpoint validates and normalizes a single endpoint. Filesystem socket
+// paths and unix:// URLs are verified to exist and returned as a bare path;
+// remote schemes (tcp, ssh, http(s), npipe) cannot be stat'd and are passed
+// through verbatim for the client to validate on connect.
+func resolveEndpoint(endpoint string, runtimeType RuntimeType) (string, RuntimeType, error) {
+	scheme, rest := splitScheme(endpoint)
+
+	switch scheme {
+	case "", "unix":
+		path := endpoint
+		if scheme == "unix" {
+			path = rest
+		}
+		if path == "" {
+			return "", "", fmt.Errorf("empty socket path")
+		}
+		if _, err := os.Stat(path); err != nil {
+			return "", "", fmt.Errorf("socket not found: %s: %w", path, err)
+		}
+		if runtimeType == RuntimeAuto {
+			runtimeType = inferRuntimeType(path)
+		}
+		return path, runtimeType, nil
+
+	default:
+		// A remote or abstract endpoint. It cannot map to a CRI socket, and the
+		// scheme carries no docker/podman hint, so default to Docker when auto.
+		if runtimeType == RuntimeAuto {
+			runtimeType = RuntimeDocker
+		}
+		return endpoint, runtimeType, nil
+	}
+}
+
+// splitScheme splits a "scheme://rest" endpoint. A bare path (no "://") returns
+// an empty scheme and the endpoint unchanged.
+func splitScheme(endpoint string) (scheme, rest string) {
+	if i := strings.Index(endpoint, "://"); i >= 0 {
+		return endpoint[:i], endpoint[i+len("://"):]
+	}
+	return "", endpoint
 }
 
 func inferRuntimeType(socketPath string) RuntimeType {
