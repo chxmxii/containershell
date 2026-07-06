@@ -150,7 +150,8 @@ func (m DetailModel) View() string {
 	// Error state
 	if m.err != nil {
 		cmdName := m.viewCommandName()
-		b.WriteString(detailErrStyle.Render(fmt.Sprintf("  Error (%s): %s", cmdName, m.err.Error())))
+		errLine := fmt.Sprintf("  Error (%s): %s", cmdName, m.err.Error())
+		b.WriteString(detailErrStyle.Render(clipLine(errLine, m.width)))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -184,7 +185,9 @@ func (m DetailModel) View() string {
 	}
 
 	for i := start; i < end; i++ {
-		b.WriteString(lines[i])
+		// Clip each line to the panel width so long lines (e.g. wide top/netstat
+		// output) cannot wrap and desync the scroll viewport.
+		b.WriteString(clipLine(lines[i], m.width))
 		b.WriteString("\n")
 	}
 

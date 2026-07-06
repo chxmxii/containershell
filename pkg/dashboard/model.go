@@ -353,8 +353,17 @@ func (m *Model) recomputeLayout() {
 
 	m.statusBar.SetDimensions(m.width)
 	m.actionBar.SetDimensions(m.width)
-	m.list.SetDimensions(layout.ListWidth, layout.ContentHeight)
-	m.detail.SetDimensions(layout.DetailWidth, layout.ContentHeight)
+
+	// The list and detail panels are rendered inside a single-cell border in
+	// renderContent, which consumes 2 columns and 2 rows. Hand each panel its
+	// actual inner content area so its viewport math matches what is visible;
+	// otherwise the panels render more rows/columns than fit and overflow.
+	const border = 2
+	listW := max(0, layout.ListWidth-border)
+	detailW := max(0, layout.DetailWidth-border)
+	contentH := max(0, layout.ContentHeight-border)
+	m.list.SetDimensions(listW, contentH)
+	m.detail.SetDimensions(detailW, contentH)
 
 	if m.overlay != nil {
 		m.overlay.SetDimensions(m.width, m.height)
@@ -423,31 +432,37 @@ func (m Model) renderContent(layout Layout) string {
 		Width(layout.ListWidth - 2).
 		Height(layout.ContentHeight - 2)
 
+	// Panel Views terminate each line with a newline; trim the trailing one so a
+	// panel that exactly fills its viewport does not spill a phantom blank line
+	// past the border and push the layout beyond the terminal height.
+	listView := strings.TrimSuffix(m.list.View(), "\n")
+	detailView := strings.TrimSuffix(m.detail.View(), "\n")
+
 	switch layout.Mode {
 	case LayoutStacked:
 		// Single panel: just the list at full width
 		listStyle := activeBorder.Width(m.width - 2)
-		return listStyle.Render(m.list.View())
+		return listStyle.Render(listView)
 
 	default: // LayoutNormal
 		// List panel
 		var listPanel string
 		if m.focus == FocusList {
 			listStyle := activeBorder.Width(layout.ListWidth - 2)
-			listPanel = listStyle.Render(m.list.View())
+			listPanel = listStyle.Render(listView)
 		} else {
 			listStyle := inactiveBorder.Width(layout.ListWidth - 2)
-			listPanel = listStyle.Render(m.list.View())
+			listPanel = listStyle.Render(listView)
 		}
 
 		// Detail panel
 		var detailPanel string
 		if m.focus == FocusDetail {
 			detailStyle := activeBorder.Width(layout.DetailWidth - 2)
-			detailPanel = detailStyle.Render(m.detail.View())
+			detailPanel = detailStyle.Render(detailView)
 		} else {
 			detailStyle := inactiveBorder.Width(layout.DetailWidth - 2)
-			detailPanel = detailStyle.Render(m.detail.View())
+			detailPanel = detailStyle.Render(detailView)
 		}
 
 		return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, detailPanel)
