@@ -31,11 +31,14 @@ type Runtime struct {
 	name       string
 }
 
-// New connects to a Docker-compatible daemon at the given Unix socket.
-// name should be "docker" or "podman" depending on the detected engine.
-func New(socketPath, name string) (*Runtime, error) {
+// New connects to a Docker-compatible daemon at the given endpoint. The endpoint
+// may be a bare filesystem socket path (treated as a unix socket) or a
+// scheme-qualified host URL such as unix://, tcp://, or ssh://. name should be
+// "docker" or "podman" depending on the detected engine.
+func New(endpoint, name string) (*Runtime, error) {
+	host := dockerHost(endpoint)
 	cli, err := client.NewClientWithOpts(
-		client.WithHost("unix://"+socketPath),
+		client.WithHost(host),
 		client.WithAPIVersionNegotiation(),
 	)
 	if err != nil {
@@ -47,14 +50,24 @@ func New(socketPath, name string) (*Runtime, error) {
 
 	if _, err := cli.Ping(ctx); err != nil {
 		cli.Close()
-		return nil, fmt.Errorf("docker ping %s: %w", socketPath, err)
+		return nil, fmt.Errorf("docker ping %s: %w", host, err)
 	}
 
 	return &Runtime{
 		cli:        cli,
-		socketPath: socketPath,
+		socketPath: endpoint,
 		name:       name,
 	}, nil
+}
+
+// dockerHost normalizes an endpoint into a Docker host URL. A bare filesystem
+// path is assumed to be a unix socket; an endpoint that already carries a scheme
+// is used as-is.
+func dockerHost(endpoint string) string {
+	if strings.Contains(endpoint, "://") {
+		return endpoint
+	}
+	return "unix://" + endpoint
 }
 
 // Close releases the underlying Docker client connection.

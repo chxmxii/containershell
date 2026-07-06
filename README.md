@@ -54,7 +54,14 @@ All commands accept `--name`, `--pod`, `--namespace`, `--container-id`. No targe
 | Docker | Docker Engine API | `/var/run/docker.sock` |
 | Podman | libpod API | `/run/podman/podman.sock` |
 
-Rootless sockets resolved via `$XDG_RUNTIME_DIR` are probed as a fallback.
+Auto-detection resolves the socket in this order:
+
+1. `--socket` flag (accepts a path or a URL: `unix://`, `tcp://`, `ssh://`)
+2. `DOCKER_HOST` / `CONTAINER_HOST` environment variables
+3. Well-known socket paths, including Docker Desktop (`~/.docker/run/docker.sock`) and rootless sockets under `$XDG_RUNTIME_DIR`
+
+Set `DOCKER_HOST` when your daemon listens on a non-default path, e.g.
+`DOCKER_HOST=unix:///custom/path/docker.sock` or `DOCKER_HOST=tcp://10.0.0.5:2375`.
 
 ## Completions
 
