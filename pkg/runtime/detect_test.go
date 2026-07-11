@@ -261,3 +261,45 @@ func TestDefaultSocketCandidates_IncludesDesktopAndRootless(t *testing.T) {
 		t.Error("candidate list should include the XDG rootless docker socket path")
 	}
 }
+
+func TestDedupeRuntimes(t *testing.T) {
+	// Distinct endpoints are all kept.
+	in := []DetectedRuntime{
+		{Endpoint: "/run/docker.sock", RuntimeType: RuntimeDocker},
+		{Endpoint: "/run/podman/podman.sock", RuntimeType: RuntimePodman},
+	}
+	if got := dedupeRuntimes(in); len(got) != 2 {
+		t.Fatalf("distinct endpoints: got %d, want 2", len(got))
+	}
+
+	// Identical endpoint strings collapse; the first entry wins.
+	in = []DetectedRuntime{
+		{Endpoint: "/run/docker.sock", RuntimeType: RuntimeDocker, Name: "DOCKER_HOST"},
+		{Endpoint: "/run/docker.sock", RuntimeType: RuntimeDocker, Name: "Docker"},
+	}
+	got := dedupeRuntimes(in)
+	if len(got) != 1 {
+		t.Fatalf("duplicate endpoints: got %d, want 1", len(got))
+	}
+	if got[0].Name != "DOCKER_HOST" {
+		t.Errorf("dedupe should keep the first entry, got %q", got[0].Name)
+	}
+
+	// Symlinked socket paths collapse to a single entry.
+	dir := t.TempDir()
+	real := filepath.Join(dir, "docker.sock")
+	if err := os.WriteFile(real, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "docker-alias.sock")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	in = []DetectedRuntime{
+		{Endpoint: real, RuntimeType: RuntimeDocker},
+		{Endpoint: link, RuntimeType: RuntimeDocker},
+	}
+	if got := dedupeRuntimes(in); len(got) != 1 {
+		t.Fatalf("symlinked paths: got %d, want 1", len(got))
+	}
+}
