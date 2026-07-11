@@ -4,6 +4,7 @@ package cri
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -180,8 +181,8 @@ func (r *Runtime) ContainerPid(ctx context.Context, containerID string) (uint32,
 	return 0, fmt.Errorf("could not determine host PID for container %s", containerID)
 }
 
-// ContainerLogs tails the container log file reported by CRI status.
-func (r *Runtime) ContainerLogs(ctx context.Context, containerID string, follow bool, tail int64) error {
+// ContainerLogs tails the container log file reported by CRI status into w.
+func (r *Runtime) ContainerLogs(ctx context.Context, containerID string, follow bool, tail int64, w io.Writer) error {
 	resp, err := r.client.ContainerStatus(ctx, &runtimeapi.ContainerStatusRequest{
 		ContainerId: containerID,
 		Verbose:     false,
@@ -206,8 +207,8 @@ func (r *Runtime) ContainerLogs(ctx context.Context, containerID string, follow 
 	args = append(args, logPath)
 
 	cmd := exec.CommandContext(ctx, "tail", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = w
+	cmd.Stderr = w
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start tail for %s: %w", logPath, err)
@@ -330,4 +331,3 @@ func extractPidFromJSON(jsonStr string) string {
 		}
 	}
 }
-

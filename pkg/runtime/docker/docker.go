@@ -332,8 +332,8 @@ func (r *Runtime) ContainerPid(ctx context.Context, containerID string) (uint32,
 	return uint32(inspect.State.Pid), nil
 }
 
-// ContainerLogs streams container logs to stdout.
-func (r *Runtime) ContainerLogs(ctx context.Context, containerID string, follow bool, tail int64) error {
+// ContainerLogs streams container logs to w (stdout and stderr interleaved).
+func (r *Runtime) ContainerLogs(ctx context.Context, containerID string, follow bool, tail int64, w io.Writer) error {
 	tailStr := "all"
 	if tail > 0 {
 		tailStr = fmt.Sprintf("%d", tail)
@@ -352,7 +352,7 @@ func (r *Runtime) ContainerLogs(ctx context.Context, containerID string, follow 
 
 	// Use StdCopy to demultiplex the log stream. If the container uses a TTY,
 	// StdCopy gracefully falls back to a simple copy.
-	if _, err := stdcopy.StdCopy(os.Stdout, os.Stderr, reader); err != nil {
+	if _, err := stdcopy.StdCopy(w, w, reader); err != nil {
 		return fmt.Errorf("read logs: %w", err)
 	}
 
