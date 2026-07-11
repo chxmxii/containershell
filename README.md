@@ -45,6 +45,16 @@ containershell portfw --local 8080 --remote 80
 ```
 All commands accept `--name`, `--pod`, `--namespace`, `--container-id`. No target → interactive picker.
 
+### Short flags
+
+| Long | Short | | Long | Short |
+|---|---|---|---|---|
+| `--runtime` | `-r` | | `--verbose` | `-v` |
+| `--socket` | `-s` | | `--version` | `-V` |
+| `--name` | `-n` | | `--help` | `-h` |
+
+`-n` is `--name` (container name), not `--namespace`. Within `fs`/`portfw`, `-R` is `--recursive`/`--remote` (`-r` is reserved globally for `--runtime`).
+
 ## Runtimes
 
 | Runtime | API | Default socket |
@@ -62,6 +72,12 @@ Auto-detection resolves the socket in this order:
 
 Set `DOCKER_HOST` when your daemon listens on a non-default path, e.g.
 `DOCKER_HOST=unix:///custom/path/docker.sock` or `DOCKER_HOST=tcp://10.0.0.5:2375`.
+
+When `--runtime` is left on `auto` and several runtimes are available at once
+(e.g. Docker *and* Podman), containershell uses the only one when there is a
+single match, prompts you to choose on an interactive terminal, and otherwise
+falls back to the highest-priority match. Pass `--runtime docker|podman|cri`
+(`-r`) to select one directly and skip the prompt.
 
 ## Completions
 
