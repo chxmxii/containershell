@@ -71,35 +71,51 @@ func TruncateSocketPath(s string) string {
 	return "…" + s[len(s)-40:]
 }
 
-// View renders the status bar as a single row.
-func (m StatusBarModel) View() string {
-	style := lipgloss.NewStyle().
-		Bold(true).
-		Reverse(true)
+// Status bar segment styles: an accent app badge on an otherwise dark inset bar.
+var (
+	sbBadge   = lipgloss.NewStyle().Bold(true).Foreground(colOnAccent).Background(colAccent)
+	sbSeg     = lipgloss.NewStyle().Foreground(colText).Background(colInset)
+	sbRuntime = lipgloss.NewStyle().Bold(true).Foreground(colAccent2).Background(colInset)
+	sbDim     = lipgloss.NewStyle().Foreground(colDim).Background(colInset)
+	sbDanger  = lipgloss.NewStyle().Bold(true).Foreground(colDanger).Background(colInset)
+)
 
-	var content string
+// View renders the status bar as a single full-width row: an accent badge, the
+// runtime and container count, and a right-aligned refresh clock.
+func (m StatusBarModel) View() string {
+	segs := []string{sbBadge.Render(" ◆ containershell ")}
 
 	switch {
 	case m.connecting:
-		content = "[Connecting...]"
+		segs = append(segs, sbDim.Render(" connecting… "))
 	case !m.connected:
-		refreshStr := m.formatRefreshTime()
-		content = fmt.Sprintf("[Disconnected] ⚠ | %d containers (stale) | Last: %s",
-			m.containerCount, refreshStr)
+		segs = append(segs,
+			sbDanger.Render(" × disconnected "),
+			sbSeg.Render(fmt.Sprintf(" %d containers (stale) ", m.containerCount)),
+		)
 	default:
-		socket := TruncateSocketPath(m.socketPath)
-		refreshStr := m.formatRefreshTime()
-		content = fmt.Sprintf("[%s v%s] %s | %d containers | Last: %s",
-			m.runtimeName, m.runtimeVersion, socket,
-			m.containerCount, refreshStr)
+		dot := lipgloss.NewStyle().Foreground(colRunning).Background(colInset).Render("●")
+		segs = append(segs,
+			sbSeg.Render(" ")+dot+sbRuntime.Render(fmt.Sprintf(" %s v%s ", m.runtimeName, m.runtimeVersion)),
+			sbSeg.Render(fmt.Sprintf(" %d containers ", m.containerCount)),
+			sbDim.Render(" "+TruncateSocketPath(m.socketPath)+" "),
+		)
 	}
 
-	// Pad content to fill the full width
-	if m.width > 0 && len(content) < m.width {
-		content = content + strings.Repeat(" ", m.width-len(content))
+	left := lipgloss.JoinHorizontal(lipgloss.Top, segs...)
+	right := sbDim.Render(" ⟳ " + m.formatRefreshTime() + " ")
+
+	if m.width <= 0 {
+		return left
 	}
 
-	return style.Render(content)
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 0 {
+		// Too narrow for the clock; clip the left segments to the width.
+		return clipLine(left, m.width)
+	}
+	filler := sbSeg.Render(strings.Repeat(" ", gap))
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, filler, right)
 }
 
 // formatRefreshTime formats the last refresh time as HH:MM:SS.

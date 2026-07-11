@@ -12,12 +12,33 @@ import (
 )
 
 var (
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
-	normalStyle   = lipgloss.NewStyle()
-	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	filterStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	selectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("99")).Foreground(lipgloss.Color("231")).Bold(true)
+	normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
+	filterStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 )
+
+// stateColor maps a container state to its semantic color.
+func stateColor(state string) lipgloss.Color {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "running", "up":
+		return lipgloss.Color("42") // green
+	case "paused":
+		return lipgloss.Color("214") // amber
+	case "exited", "stopped", "dead", "removing":
+		return lipgloss.Color("203") // red
+	case "created", "configured", "restarting":
+		return lipgloss.Color("39") // blue
+	default:
+		return lipgloss.Color("244")
+	}
+}
+
+// statusDot renders a ● colored by container state.
+func statusDot(state string) string {
+	return lipgloss.NewStyle().Foreground(stateColor(state)).Render("●")
+}
 
 type model struct {
 	containers []runtime.ContainerInfo
@@ -160,22 +181,17 @@ func (m model) View() string {
 
 	for i := m.offset; i < end; i++ {
 		c := m.filtered[i]
-
-		marker := "  "
-		if i == m.cursor {
-			marker = "▸ "
-		}
-
-		line := renderRow(cols, marker,
-			c.Name, c.PodName, c.Namespace, c.Image, formatAge(time.Since(c.CreatedAt)))
-		// Hard guard: never exceed the terminal width, so a row can never wrap
-		// onto a second line and desync the cursor from what's shown.
-		line = clipLine(line, m.width)
+		age := formatAge(time.Since(c.CreatedAt))
 
 		if i == m.cursor {
-			b.WriteString(selectedStyle.Render(line))
+			// Selected: ▸ marker and a full-width accent highlight.
+			line := renderRow(cols, "▸ ", c.Name, c.PodName, c.Namespace, c.Image, age)
+			b.WriteString(selectedStyle.Render(padLine(line, m.width)))
 		} else {
-			b.WriteString(normalStyle.Render(line))
+			// Unselected: a state-colored ● marker. Hard-clip so a row never
+			// wraps onto a second line and desyncs the cursor.
+			body := renderRow(cols, "", c.Name, c.PodName, c.Namespace, c.Image, age)
+			b.WriteString(clipLine(statusDot(c.State)+" "+normalStyle.Render(body), m.width))
 		}
 		b.WriteString("\n")
 	}
@@ -367,6 +383,19 @@ func clipLine(s string, w int) string {
 		return s
 	}
 	return ansi.Truncate(s, w, "")
+}
+
+// padLine clips s to w display columns and pads it with spaces to exactly w, so
+// a background highlight fills the full row width.
+func padLine(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	s = ansi.Truncate(s, w, "")
+	if gap := w - ansi.StringWidth(s); gap > 0 {
+		s += strings.Repeat(" ", gap)
+	}
+	return s
 }
 
 // Pick launches the interactive container picker and returns the selected container.

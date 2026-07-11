@@ -22,11 +22,11 @@ const (
 
 // Styles for the detail panel.
 var (
-	detailHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	detailKeyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
-	detailValueStyle  = lipgloss.NewStyle()
-	detailDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	detailErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	detailHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	detailKeyStyle    = lipgloss.NewStyle().Foreground(colAccent2).Bold(true)
+	detailValueStyle  = lipgloss.NewStyle().Foreground(colText)
+	detailDimStyle    = lipgloss.NewStyle().Foreground(colDim)
+	detailErrStyle    = lipgloss.NewStyle().Foreground(colDanger)
 )
 
 // DetailModel is the detail panel sub-model that displays container info and debug command output.

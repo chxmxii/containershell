@@ -94,12 +94,12 @@ func (m ActionBarModel) View() string {
 		return ""
 	}
 
-	keyStyle := lipgloss.NewStyle().Faint(true)
-	labelStyle := lipgloss.NewStyle()
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(colAccent2).Background(colInset)
+	labelStyle := lipgloss.NewStyle().Foreground(colDim)
 
 	var entries []string
 	for _, s := range m.shortcuts {
-		entry := keyStyle.Render(s.Key) + ":" + labelStyle.Render(s.Label)
+		entry := keyStyle.Render(" "+s.Key+" ") + labelStyle.Render(" "+s.Label)
 		entries = append(entries, entry)
 	}
 

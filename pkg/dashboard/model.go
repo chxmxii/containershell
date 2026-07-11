@@ -419,16 +419,16 @@ func (m Model) renderTooSmall() string {
 
 // renderContent renders the main content area (list + detail panels).
 func (m Model) renderContent(layout Layout) string {
-	// Styles for panel borders
+	// Styles for panel borders: rounded corners, accent when focused.
 	activeBorder := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colAccent).
 		Width(layout.ListWidth - 2).
 		Height(layout.ContentHeight - 2)
 
 	inactiveBorder := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colSubtle).
 		Width(layout.ListWidth - 2).
 		Height(layout.ContentHeight - 2)
 

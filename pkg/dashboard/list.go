@@ -24,10 +24,12 @@ const (
 
 // Styles for the list panel.
 var (
-	listSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
-	listNormalStyle   = lipgloss.NewStyle()
-	listDimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	listHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+	listSelectedStyle = lipgloss.NewStyle().Background(colAccent).Foreground(colOnAccent).Bold(true)
+	listNormalStyle   = lipgloss.NewStyle().Foreground(colText)
+	listDimStyle      = lipgloss.NewStyle().Foreground(colSubtle)
+	listColHeadStyle  = lipgloss.NewStyle().Foreground(colDim).Bold(true)
+	listHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	listFilterStyle   = lipgloss.NewStyle().Foreground(colAccent2)
 )
 
 // ListModel is the container list panel sub-model.
@@ -215,10 +217,10 @@ func (m ListModel) View() string {
 
 	// Show filter prompt when filterMode is active, or show inline filter indicator
 	if m.filterMode {
-		b.WriteString(listDimStyle.Render(fmt.Sprintf("  Filter: %s█", m.filter)))
+		b.WriteString(listFilterStyle.Render(clipLine(fmt.Sprintf("  Filter: %s█", m.filter), m.width)))
 		b.WriteString("\n")
 	} else if m.filter != "" {
-		b.WriteString(listDimStyle.Render(fmt.Sprintf("  [filter: %s]", m.filter)))
+		b.WriteString(listFilterStyle.Render(clipLine(fmt.Sprintf("  [filter: %s]", m.filter), m.width)))
 		b.WriteString("\n")
 	}
 
@@ -226,7 +228,7 @@ func (m ListModel) View() string {
 	// with it so the header and rows always stay aligned and never wrap.
 	cols := m.columns()
 	header := renderListRow(cols, "  ", "NAME", "POD", "NAMESPACE", "STATE", "AGE")
-	b.WriteString(listDimStyle.Render(clipLine(header, m.width)))
+	b.WriteString(listColHeadStyle.Render(clipLine(header, m.width)))
 	b.WriteString("\n")
 
 	// Handle error state
@@ -258,22 +260,21 @@ func (m ListModel) View() string {
 
 	for i := m.offset; i < end; i++ {
 		c := m.filtered[i]
-
-		marker := "  "
-		if i == m.cursor {
-			marker = "▸ "
-		}
-
-		line := renderListRow(cols, marker,
-			c.Name, c.PodName, c.Namespace, c.State, formatAge(time.Since(c.CreatedAt)))
-		// Final guard: never exceed the panel width, so a row can never wrap
-		// onto a second line and desync the scroll viewport.
-		line = clipLine(line, m.width)
+		age := formatAge(time.Since(c.CreatedAt))
 
 		if i == m.cursor {
-			b.WriteString(listSelectedStyle.Render(line))
+			// Selected row: a ▸ marker and a full-width accent highlight. Pad to
+			// the panel width so the highlight spans the whole row.
+			line := renderListRow(cols, "▸ ", c.Name, c.PodName, c.Namespace, c.State, age)
+			b.WriteString(listSelectedStyle.Render(padLine(line, m.width)))
 		} else {
-			b.WriteString(listNormalStyle.Render(line))
+			// Unselected row: a state-colored ● stands in for the marker. The dot
+			// keeps its own color while the body uses the normal text color.
+			body := renderListRow(cols, "", c.Name, c.PodName, c.Namespace, c.State, age)
+			line := statusDot(c.State) + " " + listNormalStyle.Render(body)
+			// Guard: never exceed the panel width, so a row can never wrap and
+			// desync the scroll viewport.
+			b.WriteString(clipLine(line, m.width))
 		}
 		b.WriteString("\n")
 	}
@@ -495,6 +496,19 @@ func clipLine(s string, w int) string {
 		return s
 	}
 	return ansi.Truncate(s, w, "")
+}
+
+// padLine clips s to w display columns and then pads it with spaces to exactly
+// w, so a background highlight fills the full row width.
+func padLine(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	s = ansi.Truncate(s, w, "")
+	if gap := w - ansi.StringWidth(s); gap > 0 {
+		s += strings.Repeat(" ", gap)
+	}
+	return s
 }
 
 
