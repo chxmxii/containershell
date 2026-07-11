@@ -148,7 +148,7 @@ func init() {
 		}),
 	}
 	portfwCmd.Flags().IntVarP(&portfwLocal, "local", "l", 0, "Local port")
-	portfwCmd.Flags().IntVarP(&portfwRemote, "remote", "r", 0, "Remote port in container")
+	portfwCmd.Flags().IntVarP(&portfwRemote, "remote", "R", 0, "Remote port in container")
 	portfwCmd.MarkFlagRequired("local")
 	portfwCmd.MarkFlagRequired("remote")
 	rootCmd.AddCommand(portfwCmd)
@@ -171,7 +171,7 @@ func init() {
 		}),
 	}
 	fsCmd.Flags().StringVarP(&fsPath, "path", "p", "/", "Path to list")
-	fsCmd.Flags().BoolVarP(&fsRecursive, "recursive", "r", false, "Recursive listing")
+	fsCmd.Flags().BoolVarP(&fsRecursive, "recursive", "R", false, "Recursive listing")
 	fsCmd.Flags().StringVar(&fsPattern, "match", "", "Filename glob pattern to filter")
 	rootCmd.AddCommand(fsCmd)
 }
