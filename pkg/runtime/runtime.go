@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -15,7 +16,7 @@ type Runtime interface {
 	ExecInteractive(ctx context.Context, containerID string, cmd []string, tty bool) error
 	ExecSync(ctx context.Context, containerID string, cmd []string, timeout int64) (stdout []byte, stderr []byte, exitCode int32, err error)
 	ContainerPid(ctx context.Context, containerID string) (uint32, error)
-	ContainerLogs(ctx context.Context, containerID string, follow bool, tail int64) error
+	ContainerLogs(ctx context.Context, containerID string, follow bool, tail int64, w io.Writer) error
 	RuntimeInfo(ctx context.Context) (*RuntimeInfo, error)
 	Close() error
 }

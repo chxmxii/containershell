@@ -2,35 +2,47 @@ package debug
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 
 	"github.com/containershell/containershell/pkg/runtime"
 )
 
-// Logs streams container logs from the log file path reported by the runtime.
+// Logs streams container logs to stdout using the runtime's native log API.
 func Logs(ctx context.Context, rt runtime.Runtime, containerID string, follow bool, tail int64) error {
-	return rt.ContainerLogs(ctx, containerID, follow, tail)
+	return rt.ContainerLogs(ctx, containerID, follow, tail, os.Stdout)
 }
 
 // LogsOutput returns the last `tail` lines of container logs as a string.
-// It first attempts to read logs via ExecSync inside the container, then
-// falls back to reading the init process stdout via nsenter.
+//
+// It prefers the runtime's native log API, which returns the container's
+// captured stdout/stderr regardless of what binaries exist inside it — the
+// reliable source for distroless and other minimal images. Only if that yields
+// nothing does it fall back to reading the init process stdout (via in-container
+// tail, then nsenter from the host).
 func LogsOutput(ctx context.Context, rt runtime.Runtime, containerID string, tail int64) (string, error) {
 	if tail <= 0 {
 		tail = 100
 	}
 
-	// Try ExecSync first — works when "tail" is available inside the container.
+	// Primary: the runtime's native logs.
+	var buf bytes.Buffer
+	if err := rt.ContainerLogs(ctx, containerID, false, tail, &buf); err == nil && buf.Len() > 0 {
+		return buf.String(), nil
+	}
+
+	// Fallback 1: read the init process stdout from inside the container.
 	tailCmd := []string{"tail", "-n", fmt.Sprintf("%d", tail), "/proc/1/fd/1"}
 	stdout, _, exitCode, err := rt.ExecSync(ctx, containerID, tailCmd, 10)
 	if err == nil && exitCode == 0 && len(stdout) > 0 {
 		return string(stdout), nil
 	}
 
-	// Fallback: use nsenter to read init process stdout from the host side.
+	// Fallback 2: read the init process stdout from the host side via nsenter.
 	pid, pidErr := rt.ContainerPid(ctx, containerID)
 	if pidErr != nil {
 		return "", fmt.Errorf("failed to retrieve logs: cannot determine PID: %w", pidErr)

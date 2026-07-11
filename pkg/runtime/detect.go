@@ -180,3 +180,64 @@ func inferRuntimeType(socketPath string) RuntimeType {
 		return RuntimeDocker
 	}
 }
+
+// DetectedRuntime is an available runtime endpoint discovered on the host.
+type DetectedRuntime struct {
+	Endpoint    string
+	RuntimeType RuntimeType
+	Name        string
+}
+
+// DetectAllRuntimes returns every runtime endpoint currently reachable on the
+// host: the DOCKER_HOST / CONTAINER_HOST endpoints when set, plus every
+// well-known socket path that exists. Entries are de-duplicated (following
+// symlinks) and ordered environment-first, then by socket-probe priority. It is
+// the basis for automatic runtime selection when --runtime is left on "auto".
+func DetectAllRuntimes() []DetectedRuntime {
+	var raw []DetectedRuntime
+
+	for _, e := range []struct {
+		env string
+		typ RuntimeType
+	}{
+		{"DOCKER_HOST", RuntimeDocker},
+		{"CONTAINER_HOST", RuntimePodman},
+	} {
+		v := strings.TrimSpace(os.Getenv(e.env))
+		if v == "" {
+			continue
+		}
+		if ep, typ, err := resolveEndpoint(v, e.typ); err == nil {
+			raw = append(raw, DetectedRuntime{Endpoint: ep, RuntimeType: typ, Name: e.env})
+		}
+	}
+
+	for _, c := range DefaultSocketCandidates() {
+		if _, err := os.Stat(c.Path); err == nil {
+			raw = append(raw, DetectedRuntime{Endpoint: c.Path, RuntimeType: c.RuntimeType, Name: c.Name})
+		}
+	}
+
+	return dedupeRuntimes(raw)
+}
+
+// dedupeRuntimes drops entries that resolve to the same socket. Filesystem paths
+// are compared after following symlinks (so /var/run/docker.sock and
+// /run/docker.sock collapse to a single Docker entry); non-path endpoints such
+// as tcp:// URLs compare verbatim.
+func dedupeRuntimes(in []DetectedRuntime) []DetectedRuntime {
+	seen := make(map[string]bool, len(in))
+	var out []DetectedRuntime
+	for _, r := range in {
+		key := r.Endpoint
+		if real, err := filepath.EvalSymlinks(r.Endpoint); err == nil {
+			key = real
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, r)
+	}
+	return out
+}
