@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/containershell/containershell/pkg/runtime"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 // StatusBarModel holds state for the top status bar row.
@@ -71,35 +72,43 @@ func TruncateSocketPath(s string) string {
 	return "…" + s[len(s)-40:]
 }
 
-// View renders the status bar as a single row.
+// View renders the status bar as a single row of segments: a product badge,
+// the runtime, a colored connection indicator, the socket path, and the last
+// refresh time right-aligned.
 func (m StatusBarModel) View() string {
-	style := lipgloss.NewStyle().
-		Bold(true).
-		Reverse(true)
+	sep := tui.DimStyle.Render(" │ ")
+	badge := tui.BadgeStyle.Render(" " + tui.Logo + " containershell ")
 
-	var content string
-
+	var segments []string
 	switch {
 	case m.connecting:
-		content = "[Connecting...]"
+		segments = append(segments,
+			lipgloss.NewStyle().Foreground(tui.ColorYellow).Render("● connecting…"))
 	case !m.connected:
-		refreshStr := m.formatRefreshTime()
-		content = fmt.Sprintf("[Disconnected] ⚠ | %d containers (stale) | Last: %s",
-			m.containerCount, refreshStr)
+		segments = append(segments,
+			lipgloss.NewStyle().Foreground(tui.ColorRed).Render("● disconnected"),
+			tui.DimStyle.Render(fmt.Sprintf("%d containers (stale)", m.containerCount)))
 	default:
-		socket := TruncateSocketPath(m.socketPath)
-		refreshStr := m.formatRefreshTime()
-		content = fmt.Sprintf("[%s v%s] %s | %d containers | Last: %s",
-			m.runtimeName, m.runtimeVersion, socket,
-			m.containerCount, refreshStr)
+		segments = append(segments,
+			lipgloss.NewStyle().Bold(true).Foreground(tui.ColorBlue).Render(
+				fmt.Sprintf("%s v%s", m.runtimeName, m.runtimeVersion)),
+			lipgloss.NewStyle().Foreground(tui.ColorGreen).Render(
+				fmt.Sprintf("● %d containers", m.containerCount)),
+			tui.DimStyle.Render(TruncateSocketPath(m.socketPath)))
 	}
 
-	// Pad content to fill the full width
-	if m.width > 0 && len(content) < m.width {
-		content = content + strings.Repeat(" ", m.width-len(content))
-	}
+	left := badge + " " + strings.Join(segments, sep)
+	right := tui.DimStyle.Render("⟳ " + m.formatRefreshTime())
 
-	return style.Render(content)
+	// Right-align the refresh time; drop it if the bar is too narrow.
+	if m.width > 0 {
+		gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+		if gap >= 1 {
+			return left + strings.Repeat(" ", gap) + right
+		}
+		return tui.ClipLine(left, m.width)
+	}
+	return left + " " + right
 }
 
 // formatRefreshTime formats the last refresh time as HH:MM:SS.

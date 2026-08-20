@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/containershell/containershell/pkg/runtime"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 // SortField represents the column by which containers are sorted.
@@ -24,10 +24,10 @@ const (
 
 // Styles for the list panel.
 var (
-	listSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
-	listNormalStyle   = lipgloss.NewStyle()
-	listDimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	listHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+	listSelectedStyle = tui.SelectedStyle
+	listDimStyle      = tui.DimStyle
+	listColHeadStyle  = tui.DimStyle.Bold(true)
+	listFilterStyle   = lipgloss.NewStyle().Bold(true).Foreground(tui.ColorYellow)
 )
 
 // ListModel is the container list panel sub-model.
@@ -83,14 +83,18 @@ func (m ListModel) Update(msg tea.Msg) (ListModel, tea.Cmd) {
 				// Confirm filter, exit filterMode but keep filter text
 				m.filterMode = false
 				return m, nil
-			case "up", "down", "k", "j":
+			case "up", "down":
 				// Allow navigation even in filter mode
 			default:
-				// Type characters into filter
-				if len(keyStr) == 1 && keyStr[0] >= 32 {
-					m.filter += keyStr
+				// Type characters into the filter. Rapid input can arrive as a
+				// single multi-rune KeyMsg, so append every rune, not just
+				// single-character strings.
+				if msg.Type == tea.KeyRunes && !msg.Alt {
+					m.filter += string(msg.Runes)
 					m.reapplyFilter()
-					return m, nil
+				} else if keyStr == " " {
+					m.filter += " "
+					m.reapplyFilter()
 				}
 				return m, nil
 			}
@@ -111,32 +115,7 @@ func (m ListModel) Update(msg tea.Msg) (ListModel, tea.Cmd) {
 			// Enter dedicated filter input mode
 			m.filterMode = true
 		case "S":
-			// Cycle sort field and re-sort
-			var selectedID string
-			if m.cursor >= 0 && m.cursor < len(m.filtered) {
-				selectedID = m.filtered[m.cursor].ID
-			}
-
-			m.sortField = NextSortField(m.sortField)
-			m.filtered = SortContainers(m.filtered, m.sortField)
-
-			// Restore selection
-			if selectedID != "" {
-				found := false
-				for i, c := range m.filtered {
-					if c.ID == selectedID {
-						m.cursor = i
-						found = true
-						break
-					}
-				}
-				if !found {
-					m.cursor = 0
-				}
-			} else {
-				m.cursor = 0
-			}
-			m.scrollIntoView()
+			m.cycleSort()
 		case "esc":
 			// Clear filter when not in filterMode (inline filtering reset)
 			if m.filter != "" {
@@ -144,9 +123,9 @@ func (m ListModel) Update(msg tea.Msg) (ListModel, tea.Cmd) {
 				m.reapplyFilter()
 			}
 		default:
-			// Inline filtering: type alphanumeric chars to filter when not in filterMode
-			if !m.filterMode && len(keyStr) == 1 && keyStr[0] >= 32 {
-				m.filter += keyStr
+			// Inline filtering: type printable chars to filter when not in filterMode
+			if !m.filterMode && msg.Type == tea.KeyRunes && !msg.Alt {
+				m.filter += string(msg.Runes)
 				m.reapplyFilter()
 			}
 		}
@@ -165,6 +144,27 @@ func (m ListModel) Update(msg tea.Msg) (ListModel, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// cycleSort advances to the next sort field, re-sorts, and keeps the current
+// selection (by container ID) under the cursor when it survives the re-sort.
+func (m *ListModel) cycleSort() {
+	var selectedID string
+	if m.cursor >= 0 && m.cursor < len(m.filtered) {
+		selectedID = m.filtered[m.cursor].ID
+	}
+
+	m.sortField = NextSortField(m.sortField)
+	m.filtered = SortContainers(m.filtered, m.sortField)
+
+	m.cursor = 0
+	for i, c := range m.filtered {
+		if selectedID != "" && c.ID == selectedID {
+			m.cursor = i
+			break
+		}
+	}
+	m.scrollIntoView()
 }
 
 // reapplyFilter applies the current filter to the full container list, sorts, and clamps the cursor.
@@ -205,33 +205,34 @@ func ApplyFilter(containers []runtime.ContainerInfo, filter string) []runtime.Co
 	return result
 }
 
-// View renders the container list panel.
+// View renders the container list panel. The panel title lives in the
+// surrounding border (drawn by the root model), so the body is just the
+// optional filter line, the column header, and the rows.
 func (m ListModel) View() string {
 	var b strings.Builder
 
-	// Render header
-	b.WriteString(listHeaderStyle.Render(fmt.Sprintf("Containers [sort: %s]", SortFieldLabel(m.sortField))))
-	b.WriteString("\n")
-
 	// Show filter prompt when filterMode is active, or show inline filter indicator
 	if m.filterMode {
-		b.WriteString(listDimStyle.Render(fmt.Sprintf("  Filter: %s█", m.filter)))
+		b.WriteString(listFilterStyle.Render(clipLine(fmt.Sprintf("  / %s█", m.filter), m.width)))
 		b.WriteString("\n")
 	} else if m.filter != "" {
-		b.WriteString(listDimStyle.Render(fmt.Sprintf("  [filter: %s]", m.filter)))
+		b.WriteString(listDimStyle.Render(clipLine(fmt.Sprintf("  / %s  (esc clears)", m.filter), m.width)))
 		b.WriteString("\n")
 	}
 
 	// Compute a column layout that fits the panel width, then render the header
 	// with it so the header and rows always stay aligned and never wrap.
 	cols := m.columns()
-	header := renderListRow(cols, "  ", "NAME", "POD", "NAMESPACE", "STATE", "AGE")
-	b.WriteString(listDimStyle.Render(clipLine(header, m.width)))
+	header := renderListRow(cols, "  ",
+		m.headerLabel("NAME", SortName), m.headerLabel("POD", SortPod),
+		m.headerLabel("NAMESPACE", SortNamespace), m.headerLabel("STATE", SortState),
+		m.headerLabel("AGE", SortAge))
+	b.WriteString(listColHeadStyle.Render(clipLine(header, m.width)))
 	b.WriteString("\n")
 
 	// Handle error state
 	if m.err != nil {
-		b.WriteString(listDimStyle.Render(fmt.Sprintf("  Error: %s", m.err.Error())))
+		b.WriteString(tui.ErrStyle.Render(clipLine(fmt.Sprintf("  ✗ %s", m.err.Error()), m.width)))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -239,46 +240,68 @@ func (m ListModel) View() string {
 	// Handle empty list
 	if len(m.filtered) == 0 {
 		if m.filter != "" {
-			b.WriteString(listDimStyle.Render("  No containers match the filter"))
+			b.WriteString(listDimStyle.Render("  ∅ no containers match the filter"))
 		} else {
-			b.WriteString(listDimStyle.Render("  No running containers found"))
+			b.WriteString(listDimStyle.Render("  ∅ no running containers found"))
 		}
 		b.WriteString("\n")
 		return b.String()
 	}
 
-	// Calculate visible rows (subtract header lines from available height)
-	visibleRows := m.visibleRows()
-
 	// Render visible container rows
-	end := m.offset + visibleRows
+	end := m.offset + m.visibleRows()
 	if end > len(m.filtered) {
 		end = len(m.filtered)
 	}
 
 	for i := m.offset; i < end; i++ {
 		c := m.filtered[i]
-
-		marker := "  "
-		if i == m.cursor {
-			marker = "▸ "
-		}
-
-		line := renderListRow(cols, marker,
-			c.Name, c.PodName, c.Namespace, c.State, formatAge(time.Since(c.CreatedAt)))
-		// Final guard: never exceed the panel width, so a row can never wrap
-		// onto a second line and desync the scroll viewport.
-		line = clipLine(line, m.width)
+		age := formatAge(time.Since(c.CreatedAt))
 
 		if i == m.cursor {
-			b.WriteString(listSelectedStyle.Render(line))
+			// Selected row: plain text under a single full-width highlight so the
+			// background bar stays unbroken; pad to the panel width.
+			line := renderListRow(cols, "▸ ", c.Name, c.PodName, c.Namespace, "● "+c.State, age)
+			b.WriteString(listSelectedStyle.Render(fitCol(line, m.width)))
 		} else {
-			b.WriteString(listNormalStyle.Render(line))
+			// Normal row: state cell carries its own color, secondary cells are dim.
+			// Each cell is fitted before styling, and the assembled line is clipped
+			// (ANSI-aware) so a row can never wrap and desync the scroll viewport.
+			b.WriteString(clipLine(m.renderStyledRow(cols, c, age), m.width))
 		}
 		b.WriteString("\n")
 	}
 
 	return b.String()
+}
+
+// headerLabel marks the active sort column with a ▾ indicator.
+func (m ListModel) headerLabel(label string, f SortField) string {
+	if m.sortField == f {
+		return label + " ▾"
+	}
+	return label
+}
+
+// renderStyledRow assembles one unselected list line with per-cell styling.
+// It mirrors renderListRow's layout exactly so rows align with the header.
+func (m ListModel) renderStyledRow(cols listColumns, c runtime.ContainerInfo, age string) string {
+	parts := make([]string, 0, 5)
+	parts = append(parts, fitCol(c.Name, cols.name))
+	if cols.pod > 0 {
+		parts = append(parts, listDimStyle.Render(fitCol(c.PodName, cols.pod)))
+	}
+	if cols.ns > 0 {
+		parts = append(parts, listDimStyle.Render(fitCol(c.Namespace, cols.ns)))
+	}
+	if cols.state > 0 {
+		stateStyle := lipgloss.NewStyle().Foreground(tui.StateColor(c.State))
+		parts = append(parts, stateStyle.Render(fitCol("● "+c.State, cols.state)))
+	}
+	if cols.age > 0 {
+		parts = append(parts, listDimStyle.Render(fitCol(age, cols.age)))
+	}
+	return "  " + strings.Join(parts, " ")
 }
 
 // SelectedContainer returns the currently selected container, or nil if none.
@@ -298,9 +321,9 @@ func (m *ListModel) SetDimensions(width, height int) {
 }
 
 // visibleRows returns the number of container rows that fit in the viewport.
-// Subtracts 2 for the header line and column header line, plus 1 if filter prompt is shown.
+// Subtracts 1 for the column header line, plus 1 if the filter prompt is shown.
 func (m ListModel) visibleRows() int {
-	rows := m.height - 2
+	rows := m.height - 1
 	if m.filterMode || m.filter != "" {
 		rows-- // extra line for filter prompt/indicator
 	}
@@ -338,22 +361,7 @@ func (m *ListModel) scrollIntoView() {
 }
 
 // formatAge formats a duration as a human-readable age string.
-// Rules: <1min → "Xs", <1hr → "Xm", <24h → "XhYm", >=24h → "XdYh"
-func formatAge(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
-	}
-}
+func formatAge(d time.Duration) string { return tui.FormatAge(d) }
 
 // Column width bounds. The name, pod, and namespace columns are flexible and
 // grow toward their ideal width as space allows; state and age are fixed. When
@@ -366,7 +374,7 @@ const (
 	colNameMin, colNameIdeal = 6, 28
 	colPodMin, colPodIdeal   = 6, 22
 	colNsMin, colNsIdeal     = 6, 14
-	colStateWidth            = 8
+	colStateWidth            = 10 // fits "● running" with its status dot
 	colAgeWidth              = 6
 )
 
@@ -477,24 +485,10 @@ func renderListRow(cols listColumns, marker, name, pod, ns, state, age string) s
 
 // fitCol pads or truncates s to exactly w display columns, accounting for wide
 // runes and any ANSI escape sequences.
-func fitCol(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	s = ansi.Truncate(s, w, "")
-	if pad := w - ansi.StringWidth(s); pad > 0 {
-		s += strings.Repeat(" ", pad)
-	}
-	return s
-}
+func fitCol(s string, w int) string { return tui.FitCol(s, w) }
 
 // clipLine truncates s to at most w display columns to prevent line wrapping.
 // A non-positive width returns s unchanged (the width is not yet known).
-func clipLine(s string, w int) string {
-	if w <= 0 {
-		return s
-	}
-	return ansi.Truncate(s, w, "")
-}
+func clipLine(s string, w int) string { return tui.ClipLine(s, w) }
 
 
