@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/containershell/containershell/pkg/runtime"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 // DetailView represents which view is active in the detail panel.
@@ -22,11 +23,12 @@ const (
 
 // Styles for the detail panel.
 var (
-	detailHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	detailKeyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
-	detailValueStyle  = lipgloss.NewStyle()
-	detailDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	detailErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	detailKeyStyle       = tui.KeyStyle
+	detailValueStyle     = lipgloss.NewStyle()
+	detailDimStyle       = tui.DimStyle
+	detailErrStyle       = tui.ErrStyle
+	detailTabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(tui.ColorOnAccent).Background(tui.ColorAccent)
+	detailTabStyle       = tui.DimStyle
 )
 
 // DetailModel is the detail panel sub-model that displays container info and debug command output.
@@ -118,31 +120,20 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 func (m DetailModel) View() string {
 	var b strings.Builder
 
-	// Header
-	title := "Detail"
-	switch m.view {
-	case ViewInfo:
-		title = "Container Info"
-	case ViewEnv:
-		title = "Environment"
-	case ViewTop:
-		title = "Processes"
-	case ViewNetstat:
-		title = "Network"
-	}
-	b.WriteString(detailHeaderStyle.Render(title))
+	// Tab bar: the active view is highlighted; 1/2/3 switch tabs.
+	b.WriteString(clipLine(m.renderTabs(), m.width))
 	b.WriteString("\n")
 
 	// No container selected
 	if m.container == nil {
-		b.WriteString(detailDimStyle.Render("  Select a container from the list"))
+		b.WriteString(detailDimStyle.Render("  ◇ select a container from the list"))
 		b.WriteString("\n")
 		return b.String()
 	}
 
 	// Loading state
 	if m.loading {
-		b.WriteString(detailDimStyle.Render("  Loading..."))
+		b.WriteString(detailDimStyle.Render("  … loading"))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -150,7 +141,7 @@ func (m DetailModel) View() string {
 	// Error state
 	if m.err != nil {
 		cmdName := m.viewCommandName()
-		errLine := fmt.Sprintf("  Error (%s): %s", cmdName, m.err.Error())
+		errLine := fmt.Sprintf("  ✗ %s: %s", cmdName, m.err.Error())
 		b.WriteString(detailErrStyle.Render(clipLine(errLine, m.width)))
 		b.WriteString("\n")
 		return b.String()
@@ -194,6 +185,29 @@ func (m DetailModel) View() string {
 	return b.String()
 }
 
+// renderTabs builds the tab bar shown at the top of the detail panel.
+func (m DetailModel) renderTabs() string {
+	tabs := []struct {
+		view  DetailView
+		label string
+	}{
+		{ViewInfo, "info"},
+		{ViewEnv, "1 env"},
+		{ViewTop, "2 top"},
+		{ViewNetstat, "3 net"},
+	}
+
+	parts := make([]string, 0, len(tabs))
+	for _, t := range tabs {
+		if t.view == m.view {
+			parts = append(parts, detailTabActiveStyle.Render(" "+t.label+" "))
+		} else {
+			parts = append(parts, detailTabStyle.Render(" "+t.label+" "))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // renderInfoView builds the default container info key-value display.
 func (m DetailModel) renderInfoView() string {
 	c := m.container
@@ -212,7 +226,7 @@ func (m DetailModel) renderInfoView() string {
 	writeField(&b, "ID", id)
 	writeField(&b, "Name", c.Name)
 	writeField(&b, "Image", c.Image)
-	writeField(&b, "State", c.State)
+	writeField(&b, "State", tui.StateDot(c.State))
 	writeField(&b, "Pod", c.PodName)
 	writeField(&b, "Namespace", c.Namespace)
 	writeField(&b, "Created", c.CreatedAt.Format(time.DateTime))

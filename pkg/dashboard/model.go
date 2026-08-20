@@ -12,6 +12,7 @@ import (
 	"github.com/containershell/containershell/pkg/debug"
 	"github.com/containershell/containershell/pkg/runtime"
 	"github.com/containershell/containershell/pkg/shell"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 // FocusPanel indicates which panel currently receives keyboard input.
@@ -127,6 +128,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.updateActionBarContext()
 		}
 		return m, cmd
+	}
+
+	// While the list filter is capturing input, printable keys must reach the
+	// filter rather than trigger global shortcuts (typing "nginx" must not open
+	// the netstat overlay). Only Ctrl+C stays global.
+	if m.focus == FocusList && m.list.filterMode && keyStr != "ctrl+c" {
+		return m.routeToFocusedPanel(msg)
 	}
 
 	// Global keys (no overlay open)
@@ -261,46 +269,59 @@ func (m *Model) openHelpOverlay() {
 	m.actionBar.SetContext(ContextHelp)
 }
 
-// buildHelpContent generates the help text listing all keyboard shortcuts.
+// buildHelpContent generates the styled help text listing all keyboard shortcuts.
 func (m Model) buildHelpContent() string {
 	var b strings.Builder
 
-	b.WriteString("Container List Panel:\n")
-	b.WriteString("  ↑/k        Move selection up\n")
-	b.WriteString("  ↓/j        Move selection down\n")
-	b.WriteString("  Enter/s    Shell into selected container\n")
-	b.WriteString("  l          View container logs\n")
-	b.WriteString("  i          Inspect container metadata\n")
-	b.WriteString("  t          View process list (top)\n")
-	b.WriteString("  e          View environment variables\n")
-	b.WriteString("  n          View network connections (netstat)\n")
-	b.WriteString("  /          Activate filter input mode\n")
-	b.WriteString("  S          Cycle sort field\n")
-	b.WriteString("  r          Refresh container list\n")
-	b.WriteString("  Tab        Switch focus panel\n")
+	section := func(title string) {
+		b.WriteString(tui.HeaderStyle.Render(title))
+		b.WriteString("\n")
+	}
+	row := func(key, desc string) {
+		b.WriteString("  ")
+		// Pad by display width (not bytes) so unicode keys like ↑/k stay aligned.
+		b.WriteString(tui.KeyStyle.Render(tui.FitCol(key, 10)))
+		b.WriteString(" ")
+		b.WriteString(desc)
+		b.WriteString("\n")
+	}
+
+	section("Container list")
+	row("↑/k", "Move selection up")
+	row("↓/j", "Move selection down")
+	row("Enter/s", "Shell into selected container")
+	row("l", "View container logs")
+	row("i", "Inspect container metadata")
+	row("t", "View process list (top)")
+	row("e", "View environment variables")
+	row("n", "View network connections (netstat)")
+	row("/", "Activate filter input mode")
+	row("S", "Cycle sort field")
+	row("r", "Refresh container list")
+	row("Tab", "Switch focus panel")
 	b.WriteString("\n")
 
-	b.WriteString("Detail Panel:\n")
-	b.WriteString("  ↑/k        Scroll up\n")
-	b.WriteString("  ↓/j        Scroll down\n")
-	b.WriteString("  1          Show environment variables\n")
-	b.WriteString("  2          Show process list\n")
-	b.WriteString("  3          Show network connections\n")
-	b.WriteString("  Tab        Switch focus panel\n")
+	section("Detail panel")
+	row("↑/k", "Scroll up")
+	row("↓/j", "Scroll down")
+	row("1", "Show environment variables")
+	row("2", "Show process list")
+	row("3", "Show network connections")
+	row("Tab", "Switch focus panel")
 	b.WriteString("\n")
 
-	b.WriteString("Overlay:\n")
-	b.WriteString("  ↑/k        Scroll up\n")
-	b.WriteString("  ↓/j        Scroll down\n")
-	b.WriteString("  PgUp/PgDn  Page scroll\n")
-	b.WriteString("  g/G        Jump to top/bottom\n")
-	b.WriteString("  f          Toggle follow mode (logs)\n")
-	b.WriteString("  Esc/q      Close overlay\n")
+	section("Overlay")
+	row("↑/k", "Scroll up")
+	row("↓/j", "Scroll down")
+	row("PgUp/PgDn", "Page scroll")
+	row("g/G", "Jump to top/bottom")
+	row("f", "Toggle follow mode (logs)")
+	row("Esc/q", "Close overlay")
 	b.WriteString("\n")
 
-	b.WriteString("Global:\n")
-	b.WriteString("  ?          Show this help\n")
-	b.WriteString("  q/Ctrl+C   Quit dashboard\n")
+	section("Global")
+	row("?", "Show this help")
+	row("q/Ctrl+C", "Quit dashboard")
 
 	return b.String()
 }
@@ -409,62 +430,57 @@ func (m Model) View() string {
 
 // renderTooSmall renders the terminal-too-small message.
 func (m Model) renderTooSmall() string {
-	msg := fmt.Sprintf("Terminal too small (%dx%d). Minimum: 80x24.", m.width, m.height)
+	msg := fmt.Sprintf("Terminal too small (%d×%d) — minimum is 80×24", m.width, m.height)
 	style := lipgloss.NewStyle().
 		Width(m.width).
 		Height(m.height).
 		Align(lipgloss.Center, lipgloss.Center)
-	return style.Render(msg)
+	return style.Render(tui.DimStyle.Render(msg))
+}
+
+// listPanelTitle summarizes the container list for the panel border.
+func (m Model) listPanelTitle() string {
+	shown, total := len(m.list.filtered), len(m.list.containers)
+	if shown != total {
+		return fmt.Sprintf("Containers %d/%d", shown, total)
+	}
+	return fmt.Sprintf("Containers %d", total)
+}
+
+// listPanelFooter reports the active sort field for the panel border.
+func (m Model) listPanelFooter() string {
+	return "sort " + SortFieldLabel(m.list.sortField) + " ▾"
+}
+
+// detailPanelTitle names the inspected container in the panel border.
+func (m Model) detailPanelTitle() string {
+	if c := m.list.SelectedContainer(); c != nil {
+		return "Inspect · " + c.Name
+	}
+	return "Inspect"
 }
 
 // renderContent renders the main content area (list + detail panels).
+// Each panel is drawn by tui.Panel, which owns the border and embeds the
+// title, so the sub-models only render their inner content.
 func (m Model) renderContent(layout Layout) string {
-	// Styles for panel borders
-	activeBorder := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Width(layout.ListWidth - 2).
-		Height(layout.ContentHeight - 2)
-
-	inactiveBorder := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Width(layout.ListWidth - 2).
-		Height(layout.ContentHeight - 2)
-
 	// Panel Views terminate each line with a newline; trim the trailing one so a
 	// panel that exactly fills its viewport does not spill a phantom blank line
 	// past the border and push the layout beyond the terminal height.
 	listView := strings.TrimSuffix(m.list.View(), "\n")
-	detailView := strings.TrimSuffix(m.detail.View(), "\n")
 
 	switch layout.Mode {
 	case LayoutStacked:
 		// Single panel: just the list at full width
-		listStyle := activeBorder.Width(m.width - 2)
-		return listStyle.Render(listView)
+		return tui.Panel(m.width, layout.ContentHeight,
+			m.listPanelTitle(), m.listPanelFooter(), true, listView)
 
 	default: // LayoutNormal
-		// List panel
-		var listPanel string
-		if m.focus == FocusList {
-			listStyle := activeBorder.Width(layout.ListWidth - 2)
-			listPanel = listStyle.Render(listView)
-		} else {
-			listStyle := inactiveBorder.Width(layout.ListWidth - 2)
-			listPanel = listStyle.Render(listView)
-		}
-
-		// Detail panel
-		var detailPanel string
-		if m.focus == FocusDetail {
-			detailStyle := activeBorder.Width(layout.DetailWidth - 2)
-			detailPanel = detailStyle.Render(detailView)
-		} else {
-			detailStyle := inactiveBorder.Width(layout.DetailWidth - 2)
-			detailPanel = detailStyle.Render(detailView)
-		}
-
+		detailView := strings.TrimSuffix(m.detail.View(), "\n")
+		listPanel := tui.Panel(layout.ListWidth, layout.ContentHeight,
+			m.listPanelTitle(), m.listPanelFooter(), m.focus == FocusList, listView)
+		detailPanel := tui.Panel(layout.DetailWidth, layout.ContentHeight,
+			m.detailPanelTitle(), "", m.focus == FocusDetail, detailView)
 		return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, detailPanel)
 	}
 }

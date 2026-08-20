@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/containershell/containershell/pkg/runtime"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 type runtimeModel struct {
@@ -49,17 +50,19 @@ func (m runtimeModel) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("Select a container runtime"))
+	b.WriteString(tui.BadgeStyle.Render(" " + tui.Logo + " containershell "))
+	b.WriteString(headerStyle.Render(" select a runtime"))
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("↑/↓ to move · Enter to select · Esc to cancel"))
+	b.WriteString(dimStyle.Render("↑/↓ move · Enter select · Esc cancel"))
 	b.WriteString("\n\n")
 
 	for i, r := range m.runtimes {
-		line := fmt.Sprintf("%-8s %s", runtimeLabel(r.RuntimeType), r.Endpoint)
 		if i == m.cursor {
-			b.WriteString(selectedStyle.Render("▸ " + line))
+			line := fmt.Sprintf("▸ %-8s %s", runtimeLabel(r.RuntimeType), r.Endpoint)
+			b.WriteString(selectedStyle.Render(line))
 		} else {
-			b.WriteString(normalStyle.Render("  " + line))
+			b.WriteString("  " + fmt.Sprintf("%-8s", runtimeLabel(r.RuntimeType)))
+			b.WriteString(dimStyle.Render(" " + r.Endpoint))
 		}
 		b.WriteString("\n")
 	}

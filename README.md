@@ -10,21 +10,46 @@ Shell acquisition tool for running containers, including distroless images. Impl
 
 ## Install
 
+### From a release binary (recommended)
+
+No Go toolchain needed. Grab the latest tarball for your platform from the
+[releases page](https://github.com/chxmxii/containershell/releases), or:
+
+```bash
+VERSION=v0.1.0                                              # latest release
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')                 # linux / darwin
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')   # amd64 / arm64
+curl -sL "https://github.com/chxmxii/containershell/releases/download/${VERSION}/containershell-${VERSION}-${OS}-${ARCH}.tar.gz" | tar xz
+sudo install "containershell-${VERSION}-${OS}-${ARCH}/containershell" /usr/local/bin/
+containershell --version
+```
+
+Each release ships `checksums.txt` with SHA-256 sums for verification.
+
+### From source
+
+Requires Go 1.25+.
+
 ```bash
 git clone https://github.com/chxmxii/containershell.git
 cd containershell && make build && sudo make install
 ```
-Requires Go 1.25+.
 
 ## Usage
 
 ```bash
-# interactive tui
-containershell <dasboard/ui>
+# full-screen interactive dashboard (aliases: ui, tui)
+containershell dashboard
+
+# shell straight into a container
 containershell --name nginx
 containershell --pod web-pod --namespace prod
 containershell --runtime docker --name myapp
 ```
+
+The dashboard shows a live container list with filtering (`/`), sorting (`S`),
+per-container inspect/env/processes/network tabs, log and debug overlays, and
+one-key shell access (`Enter`). Press `?` inside for the full key map.
 
 ## Debug toolkit
 

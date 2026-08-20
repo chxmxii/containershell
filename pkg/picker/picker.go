@@ -7,16 +7,17 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/containershell/containershell/pkg/runtime"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 var (
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
+	selectedStyle = tui.SelectedStyle
 	normalStyle   = lipgloss.NewStyle()
-	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	filterStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	headerStyle   = tui.TitleStyle
+	colHeadStyle  = tui.DimStyle.Bold(true)
+	filterStyle   = lipgloss.NewStyle().Bold(true).Foreground(tui.ColorYellow)
+	dimStyle      = tui.DimStyle
 )
 
 type model struct {
@@ -88,9 +89,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		default:
-			// Type printable characters into the filter.
-			if s := msg.String(); len(s) == 1 && s[0] >= 32 {
-				m.filter += s
+			// Type printable characters into the filter. Rapid input can arrive
+			// as a single multi-rune KeyMsg, so append every rune.
+			if msg.Type == tea.KeyRunes && !msg.Alt {
+				m.filter += string(msg.Runes)
+				m.applyFilter()
+			} else if msg.String() == " " {
+				m.filter += " "
 				m.applyFilter()
 			}
 		}
@@ -130,13 +135,13 @@ func (m model) View() string {
 
 	var b strings.Builder
 
-	b.WriteString(headerStyle.Render(clipLine("ContainerShell — Select a container", m.width)))
+	b.WriteString(headerLine(m.width))
 	b.WriteString("\n")
 
 	if m.filter != "" {
-		b.WriteString(filterStyle.Render(clipLine("Filter: "+m.filter+"█", m.width)))
+		b.WriteString(filterStyle.Render(clipLine("/ "+m.filter+"█", m.width)))
 	} else {
-		b.WriteString(dimStyle.Render(clipLine("Type to filter · ↑/↓ or Ctrl-N/P to move · Enter to select · Esc to cancel", m.width)))
+		b.WriteString(dimStyle.Render(clipLine("type to filter · ↑/↓ move · Enter select · Esc cancel", m.width)))
 	}
 	b.WriteString("\n\n")
 
@@ -144,11 +149,11 @@ func (m model) View() string {
 	// header with it so header and rows stay aligned and never wrap.
 	cols := m.columns()
 	header := renderRow(cols, "  ", "NAME", "POD", "NAMESPACE", "IMAGE", "AGE")
-	b.WriteString(dimStyle.Render(clipLine(header, m.width)))
+	b.WriteString(colHeadStyle.Render(clipLine(header, m.width)))
 	b.WriteString("\n")
 
 	if len(m.filtered) == 0 {
-		b.WriteString(dimStyle.Render(clipLine("  No containers match the filter", m.width)))
+		b.WriteString(dimStyle.Render(clipLine("  ∅ no containers match the filter", m.width)))
 		return b.String()
 	}
 
@@ -160,22 +165,18 @@ func (m model) View() string {
 
 	for i := m.offset; i < end; i++ {
 		c := m.filtered[i]
-
-		marker := "  "
-		if i == m.cursor {
-			marker = "▸ "
-		}
-
-		line := renderRow(cols, marker,
-			c.Name, c.PodName, c.Namespace, c.Image, formatAge(time.Since(c.CreatedAt)))
-		// Hard guard: never exceed the terminal width, so a row can never wrap
-		// onto a second line and desync the cursor from what's shown.
-		line = clipLine(line, m.width)
+		age := formatAge(time.Since(c.CreatedAt))
 
 		if i == m.cursor {
-			b.WriteString(selectedStyle.Render(line))
+			// Selected row: marker plus a full-width highlight bar. fitCol pads to
+			// the terminal width, which also guarantees the row cannot wrap.
+			line := renderRow(cols, "▸ ", c.Name, c.PodName, c.Namespace, c.Image, age)
+			b.WriteString(selectedStyle.Render(fitCol(line, m.width)))
 		} else {
-			b.WriteString(normalStyle.Render(line))
+			// Hard guard: never exceed the terminal width, so a row can never wrap
+			// onto a second line and desync the cursor from what's shown.
+			line := renderRow(cols, "  ", c.Name, c.PodName, c.Namespace, c.Image, age)
+			b.WriteString(normalStyle.Render(clipLine(line, m.width)))
 		}
 		b.WriteString("\n")
 	}
@@ -183,6 +184,12 @@ func (m model) View() string {
 	b.WriteString(dimStyle.Render(clipLine(fmt.Sprintf("  %d/%d", m.cursor+1, len(m.filtered)), m.width)))
 
 	return b.String()
+}
+
+// headerLine renders the picker title: a product badge plus the prompt.
+func headerLine(width int) string {
+	return clipLine(tui.BadgeStyle.Render(" "+tui.Logo+" containershell ")+
+		headerStyle.Render(" select a container"), width)
 }
 
 // pickerChrome is the number of non-row lines View always renders: the title,
@@ -221,21 +228,7 @@ func (m *model) scrollIntoView() {
 	}
 }
 
-func formatAge(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
-	}
-}
+func formatAge(d time.Duration) string { return tui.FormatAge(d) }
 
 // Column width bounds. name and image are the flexible columns that grow toward
 // their ideal as space allows; age is fixed. pod/namespace are only offered when
@@ -350,24 +343,10 @@ func renderRow(cols pickerColumns, marker, name, pod, ns, image, age string) str
 
 // fitCol pads or truncates s to exactly w display columns, accounting for wide
 // runes and any ANSI escape sequences.
-func fitCol(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	s = ansi.Truncate(s, w, "")
-	if pad := w - ansi.StringWidth(s); pad > 0 {
-		s += strings.Repeat(" ", pad)
-	}
-	return s
-}
+func fitCol(s string, w int) string { return tui.FitCol(s, w) }
 
 // clipLine truncates s to at most w display columns to prevent line wrapping.
-func clipLine(s string, w int) string {
-	if w <= 0 {
-		return s
-	}
-	return ansi.Truncate(s, w, "")
-}
+func clipLine(s string, w int) string { return tui.ClipLine(s, w) }
 
 // Pick launches the interactive container picker and returns the selected container.
 // Returns an error if the user cancels or there are no containers.

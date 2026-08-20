@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 // ActionContext represents the current UI context determining which shortcuts to display.
@@ -88,18 +89,15 @@ func (m *ActionBarModel) SetDimensions(width int) {
 	m.width = width
 }
 
-// View renders the action bar as a single row of key:label entries.
+// View renders the action bar as a single row of key/label entries.
 func (m ActionBarModel) View() string {
 	if len(m.shortcuts) == 0 {
 		return ""
 	}
 
-	keyStyle := lipgloss.NewStyle().Faint(true)
-	labelStyle := lipgloss.NewStyle()
-
 	var entries []string
 	for _, s := range m.shortcuts {
-		entry := keyStyle.Render(s.Key) + ":" + labelStyle.Render(s.Label)
+		entry := tui.KeyStyle.Render(s.Key) + " " + tui.DimStyle.Render(s.Label)
 		entries = append(entries, entry)
 	}
 

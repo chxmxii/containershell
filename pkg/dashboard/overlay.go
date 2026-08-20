@@ -1,10 +1,12 @@
 package dashboard
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/containershell/containershell/pkg/tui"
 )
 
 // OverlayModel represents a centered modal overlay for displaying debug output,
@@ -78,11 +80,11 @@ func (o *OverlayModel) AppendLine(line string) {
 	}
 }
 
-// viewportHeight returns the number of visible content lines within the overlay border.
-// It accounts for the border (2 rows) and the title bar (1 row).
+// viewportHeight returns the number of visible content lines within the
+// overlay border. The title lives in the border itself, so only the top and
+// bottom border rows are subtracted.
 func (o *OverlayModel) viewportHeight() int {
-	// Total overlay box height minus border top/bottom (2) and title row (1)
-	h := o.overlayHeight() - 3
+	h := o.overlayHeight() - 2
 	if h < 1 {
 		return 1
 	}
@@ -174,89 +176,71 @@ func (o *OverlayModel) Update(msg tea.Msg) (*OverlayModel, tea.Cmd, bool) {
 	return o, nil, false
 }
 
-// View renders the overlay as a centered bordered box with title and scrollable content.
+// View renders the overlay as a centered bordered box. The title (with FOLLOW
+// and loading badges) is embedded in the top border and the scroll position in
+// the bottom border.
 func (o *OverlayModel) View() string {
 	boxWidth := o.overlayWidth()
+	boxHeight := o.overlayHeight()
+	vpHeight := o.viewportHeight()
 
-	// Build the title bar
-	titleText := " " + o.title + " "
+	title := o.title
 	if o.follow {
-		titleText += "[FOLLOW] "
+		title += " · FOLLOW"
 	}
 	if o.loading {
-		titleText += "[Loading...] "
-	}
-
-	// Inner content width (box width minus border left/right)
-	innerWidth := boxWidth - 2
-	if innerWidth < 1 {
-		innerWidth = 1
+		title += " · Loading…"
 	}
 
 	// Build visible content
 	var contentLines []string
-	vpHeight := o.viewportHeight()
-
-	if o.err != nil {
-		errMsg := "Error: " + o.err.Error()
-		contentLines = []string{errMsg}
-	} else if o.loading && len(o.lines) == 0 {
-		contentLines = []string{"Loading..."}
-	} else {
-		// Get the visible slice of lines based on scroll position
+	switch {
+	case o.err != nil:
+		contentLines = []string{tui.ErrStyle.Render("✗ " + o.err.Error())}
+	case o.loading && len(o.lines) == 0:
+		contentLines = []string{tui.DimStyle.Render("… loading")}
+	default:
 		start := o.scroll
-		end := start + vpHeight
-		if end > len(o.lines) {
-			end = len(o.lines)
-		}
+		end := min(start+vpHeight, len(o.lines))
 		if start < len(o.lines) {
 			contentLines = o.lines[start:end]
 		}
 	}
 
-	// Truncate lines to fit inner width and pad to fill viewport
-	var renderedLines []string
-	for _, line := range contentLines {
-		if len(line) > innerWidth {
-			line = line[:innerWidth]
-		}
-		renderedLines = append(renderedLines, line)
-	}
-	// Pad remaining viewport lines with empty strings
-	for len(renderedLines) < vpHeight {
-		renderedLines = append(renderedLines, "")
+	// Indent content one column from the border; Panel clips each line.
+	for i, line := range contentLines {
+		contentLines[i] = " " + line
 	}
 
-	contentBlock := strings.Join(renderedLines, "\n")
+	box := tui.Panel(boxWidth, boxHeight, title, o.scrollIndicator(), true,
+		strings.Join(contentLines, "\n"))
 
-	// Style the overlay box with a rounded border
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Width(innerWidth).
-		Height(vpHeight + 1). // +1 for title row
-		Padding(0, 1)
+	return centerBox(box, o.width, o.height)
+}
 
-	// Build title line (padded to fill width)
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("62"))
+// scrollIndicator reports the scroll position for the bottom border:
+// empty when everything fits, otherwise "top", "NN%", or "bot".
+func (o *OverlayModel) scrollIndicator() string {
+	max := o.maxScroll()
+	switch {
+	case max == 0:
+		return ""
+	case o.scroll == 0:
+		return "top"
+	case o.scroll >= max:
+		return "bot"
+	default:
+		return fmt.Sprintf("%d%%", o.scroll*100/max)
+	}
+}
 
-	titleLine := titleStyle.Render(titleText)
+// centerBox pads a rendered box with blank lines and left spacing so it sits
+// centered in a width×height terminal.
+func centerBox(box string, width, height int) string {
+	lines := strings.Split(box, "\n")
 
-	// Combine title and content
-	body := titleLine + "\n" + contentBlock
-
-	box := borderStyle.Render(body)
-
-	// Center the box in the terminal
-	boxRenderedHeight := lipgloss.Height(box)
-	boxRenderedWidth := lipgloss.Width(box)
-
-	// Calculate padding for centering
-	padTop := (o.height - boxRenderedHeight) / 2
-	padLeft := (o.width - boxRenderedWidth) / 2
-
+	padTop := (height - len(lines)) / 2
+	padLeft := (width - lipgloss.Width(box)) / 2
 	if padTop < 0 {
 		padTop = 0
 	}
@@ -264,21 +248,15 @@ func (o *OverlayModel) View() string {
 		padLeft = 0
 	}
 
-	// Build centered output
 	var result strings.Builder
-	// Add top padding
-	for i := 0; i < padTop; i++ {
-		result.WriteString("\n")
-	}
-	// Add each line of the box with left padding
+	result.WriteString(strings.Repeat("\n", padTop))
 	leftPad := strings.Repeat(" ", padLeft)
-	for i, line := range strings.Split(box, "\n") {
+	for i, line := range lines {
 		if i > 0 {
 			result.WriteString("\n")
 		}
 		result.WriteString(leftPad)
 		result.WriteString(line)
 	}
-
 	return result.String()
 }
