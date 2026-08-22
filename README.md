@@ -2,6 +2,9 @@
 
 Shell acquisition tool for running containers, including distroless images. Implements a 3-tier fallback against the container runtime's API. Supports containerd, CRI-O, Docker, and Podman via runtime auto-detection.
 
+![](./assets/demo.png)
+
+
 ## Fallback chain
 
 1. **Exec** `exec(2)` into the container's mount namespace; probes `bash`, `sh`, `ash`, `zsh` in order until one resolves
