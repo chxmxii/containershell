@@ -149,7 +149,6 @@ func init() {
 	}
 	portfwCmd.Flags().IntVarP(&portfwLocal, "local", "l", 0, "Local port")
 	portfwCmd.Flags().IntVarP(&portfwRemote, "remote", "R", 0, "Remote port in container")
-	portfwCmd.MarkFlagRequired("local")
 	portfwCmd.MarkFlagRequired("remote")
 	rootCmd.AddCommand(portfwCmd)
 
