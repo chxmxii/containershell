@@ -20,17 +20,29 @@ func Strace(ctx context.Context, rt runtime.Runtime, containerID string, targetP
 		return fmt.Errorf("cannot determine container PID: %w", err)
 	}
 
-	straceTarget := int(pid)
+	var args []string
 	if targetPid > 0 {
-		straceTarget = targetPid
+		// A specific PID was requested; trace just that one.
+		args = []string{"-p", fmt.Sprintf("%d", targetPid)}
+		if followForks {
+			args = append(args, "-f")
+		}
+		fmt.Fprintf(os.Stderr, "Tracing PID %d (Ctrl+C to stop)...\n", targetPid)
+	} else {
+		// Default: trace the container's whole process tree. The init process
+		// is usually idle (blocked in sigsuspend/wait), so attaching to it
+		// alone shows nothing — the activity is in its children. -f keeps
+		// following anything forked after we attach.
+		targets, err := ProcTreePids(int(pid))
+		if err != nil {
+			targets = []int{int(pid)}
+		}
+		args = []string{"-f"}
+		for _, t := range targets {
+			args = append(args, "-p", fmt.Sprintf("%d", t))
+		}
+		fmt.Fprintf(os.Stderr, "Tracing %d process(es) %v (Ctrl+C to stop)...\n", len(targets), targets)
 	}
-
-	args := []string{"-p", fmt.Sprintf("%d", straceTarget)}
-	if followForks {
-		args = append(args, "-f")
-	}
-
-	fmt.Fprintf(os.Stderr, "Tracing PID %d (Ctrl+C to stop)...\n", straceTarget)
 
 	cmd := exec.CommandContext(ctx, "strace", args...)
 	cmd.Stdin = os.Stdin

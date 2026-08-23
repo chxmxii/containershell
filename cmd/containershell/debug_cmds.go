@@ -116,8 +116,8 @@ func init() {
 			return debug.Strace(ctx, rt, c.ID, stracePid, straceForks)
 		}),
 	}
-	straceCmd.Flags().IntVarP(&stracePid, "pid", "p", 0, "PID to trace (default: container init)")
-	straceCmd.Flags().BoolVarP(&straceForks, "follow-forks", "f", false, "Follow child processes")
+	straceCmd.Flags().IntVarP(&stracePid, "pid", "p", 0, "Trace only this PID (default: the container's whole process tree)")
+	straceCmd.Flags().BoolVarP(&straceForks, "follow-forks", "f", false, "With --pid: also follow child processes")
 	rootCmd.AddCommand(straceCmd)
 
 	// cp
