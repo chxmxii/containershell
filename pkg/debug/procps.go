@@ -30,7 +30,34 @@ func ProcTop(initPid int) (string, error) {
 		return "", fmt.Errorf("process %d not found in /proc", initPid)
 	}
 
-	// Collect the init process and all its descendants.
+	pids := descendantPids(procs, initPid)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%7s %-10s %s\n", "PID", "USER", "COMMAND"))
+	for _, pid := range pids {
+		p := procs[pid]
+		b.WriteString(fmt.Sprintf("%7d %-10s %s\n", pid, userName(p.uid), p.command))
+	}
+	b.WriteString("(host PIDs, read from /proc)\n")
+	return b.String(), nil
+}
+
+// ProcTreePids returns initPid and all its descendant PIDs, sorted, read from
+// the host /proc.
+func ProcTreePids(initPid int) ([]int, error) {
+	procs, err := readProcTable()
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := procs[initPid]; !ok {
+		return nil, fmt.Errorf("process %d not found in /proc", initPid)
+	}
+	return descendantPids(procs, initPid), nil
+}
+
+// descendantPids collects initPid and all its descendants from a process
+// table, sorted ascending.
+func descendantPids(procs map[int]*procEntry, initPid int) []int {
 	children := make(map[int][]int, len(procs))
 	for pid, p := range procs {
 		children[p.ppid] = append(children[p.ppid], pid)
@@ -44,15 +71,7 @@ func ProcTop(initPid int) (string, error) {
 		stack = append(stack, children[pid]...)
 	}
 	sort.Ints(pids)
-
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%7s %-10s %s\n", "PID", "USER", "COMMAND"))
-	for _, pid := range pids {
-		p := procs[pid]
-		b.WriteString(fmt.Sprintf("%7d %-10s %s\n", pid, userName(p.uid), p.command))
-	}
-	b.WriteString("(host PIDs, read from /proc)\n")
-	return b.String(), nil
+	return pids
 }
 
 // readProcTable parses every numeric /proc entry into a process table.

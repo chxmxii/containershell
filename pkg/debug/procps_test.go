@@ -22,6 +22,21 @@ func TestProcTopIncludesSelf(t *testing.T) {
 	}
 }
 
+// ProcTreePids rooted at our parent must include both the parent and us.
+func TestProcTreePidsIncludesDescendants(t *testing.T) {
+	pids, err := ProcTreePids(os.Getppid())
+	if err != nil {
+		t.Fatalf("ProcTreePids failed: %v", err)
+	}
+	found := map[int]bool{}
+	for _, p := range pids {
+		found[p] = true
+	}
+	if !found[os.Getppid()] || !found[os.Getpid()] {
+		t.Fatalf("expected parent %d and self %d in tree, got %v", os.Getppid(), os.Getpid(), pids)
+	}
+}
+
 func TestProcTopUnknownPid(t *testing.T) {
 	// PID 0 never appears as a /proc entry.
 	if _, err := ProcTop(0); err == nil {
