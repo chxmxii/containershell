@@ -12,9 +12,9 @@ func TestNewActionBarModel(t *testing.T) {
 	if len(m.shortcuts) == 0 {
 		t.Fatal("expected default shortcuts to be set (ContextList)")
 	}
-	// Default context is ContextList which has 13 shortcuts
-	if len(m.shortcuts) != 13 {
-		t.Fatalf("expected 13 shortcuts for ContextList, got %d", len(m.shortcuts))
+	// Default context is ContextList which has 14 shortcuts
+	if len(m.shortcuts) != 14 {
+		t.Fatalf("expected 14 shortcuts for ContextList, got %d", len(m.shortcuts))
 	}
 }
 
@@ -34,6 +34,7 @@ func TestSetContext_List(t *testing.T) {
 		{Key: "S", Label: "sort"},
 		{Key: "r", Label: "refresh"},
 		{Key: "Tab", Label: "panel"},
+		{Key: "T", Label: "theme"},
 		{Key: "?", Label: "help"},
 		{Key: "q", Label: "quit"},
 	}

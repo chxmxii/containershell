@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/containershell/containershell/pkg/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -22,6 +23,13 @@ var rootCmd = &cobra.Command{
 plus a full debugging toolkit.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Apply the persisted theme preference for every TUI surface; the
+		// dashboard's --theme flag overrides this later.
+		if saved := tui.LoadThemePref(); saved != "" {
+			tui.ApplyByName(saved)
+		}
+	},
 }
 
 func init() {

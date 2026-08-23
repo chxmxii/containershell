@@ -4,15 +4,20 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/containershell/containershell/pkg/dashboard"
+	"github.com/containershell/containershell/pkg/tui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
-var refreshInterval time.Duration
+var (
+	refreshInterval time.Duration
+	themeName       string
+)
 
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
@@ -29,18 +34,25 @@ provides the same 3-tier shell fallback strategy as the shell command.`,
 func init() {
 	dashboardCmd.Flags().DurationVar(&refreshInterval, "refresh", 5*time.Second,
 		"Container list refresh interval (range: 1s-60s)")
+	dashboardCmd.Flags().StringVar(&themeName, "theme", "",
+		"Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (default: saved preference; press T in the dashboard to switch)")
 	rootCmd.AddCommand(dashboardCmd)
 }
 
 func runDashboard(cmd *cobra.Command, args []string) error {
-	// Validate TTY
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("dashboard requires an interactive terminal (TTY)")
-	}
-
 	// Validate refresh interval
 	if refreshInterval < time.Second || refreshInterval > 60*time.Second {
 		return fmt.Errorf("refresh interval must be between 1s and 60s, got %s", refreshInterval)
+	}
+
+	// Apply the theme flag (overrides any saved preference)
+	if themeName != "" && !tui.ApplyByName(themeName) {
+		return fmt.Errorf("unknown theme %q (available: %s)", themeName, strings.Join(tui.ThemeNames(), ", "))
+	}
+
+	// Validate TTY
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return fmt.Errorf("dashboard requires an interactive terminal (TTY)")
 	}
 
 	// Connect to runtime

@@ -22,13 +22,8 @@ const (
 	SortState
 )
 
-// Styles for the list panel.
-var (
-	listSelectedStyle = tui.SelectedStyle
-	listDimStyle      = tui.DimStyle
-	listColHeadStyle  = tui.DimStyle.Bold(true)
-	listFilterStyle   = lipgloss.NewStyle().Bold(true).Foreground(tui.ColorYellow)
-)
+// Styles are read from pkg/tui at render time (never cached in package vars)
+// so a theme switch takes effect immediately.
 
 // ListModel is the container list panel sub-model.
 type ListModel struct {
@@ -213,10 +208,10 @@ func (m ListModel) View() string {
 
 	// Show filter prompt when filterMode is active, or show inline filter indicator
 	if m.filterMode {
-		b.WriteString(listFilterStyle.Render(clipLine(fmt.Sprintf("  / %s█", m.filter), m.width)))
+		b.WriteString(tui.FilterStyle.Render(clipLine(fmt.Sprintf("  / %s█", m.filter), m.width)))
 		b.WriteString("\n")
 	} else if m.filter != "" {
-		b.WriteString(listDimStyle.Render(clipLine(fmt.Sprintf("  / %s  (esc clears)", m.filter), m.width)))
+		b.WriteString(tui.DimStyle.Render(clipLine(fmt.Sprintf("  / %s  (esc clears)", m.filter), m.width)))
 		b.WriteString("\n")
 	}
 
@@ -227,7 +222,7 @@ func (m ListModel) View() string {
 		m.headerLabel("NAME", SortName), m.headerLabel("POD", SortPod),
 		m.headerLabel("NAMESPACE", SortNamespace), m.headerLabel("STATE", SortState),
 		m.headerLabel("AGE", SortAge))
-	b.WriteString(listColHeadStyle.Render(clipLine(header, m.width)))
+	b.WriteString(tui.ColHeadStyle.Render(clipLine(header, m.width)))
 	b.WriteString("\n")
 
 	// Handle error state
@@ -240,9 +235,9 @@ func (m ListModel) View() string {
 	// Handle empty list
 	if len(m.filtered) == 0 {
 		if m.filter != "" {
-			b.WriteString(listDimStyle.Render("  ∅ no containers match the filter"))
+			b.WriteString(tui.DimStyle.Render("  ∅ no containers match the filter"))
 		} else {
-			b.WriteString(listDimStyle.Render("  ∅ no running containers found"))
+			b.WriteString(tui.DimStyle.Render("  ∅ no running containers found"))
 		}
 		b.WriteString("\n")
 		return b.String()
@@ -262,7 +257,7 @@ func (m ListModel) View() string {
 			// Selected row: plain text under a single full-width highlight so the
 			// background bar stays unbroken; pad to the panel width.
 			line := renderListRow(cols, "▸ ", c.Name, c.PodName, c.Namespace, "● "+c.State, age)
-			b.WriteString(listSelectedStyle.Render(fitCol(line, m.width)))
+			b.WriteString(tui.SelectedStyle.Render(fitCol(line, m.width)))
 		} else {
 			// Normal row: state cell carries its own color, secondary cells are dim.
 			// Each cell is fitted before styling, and the assembled line is clipped
@@ -289,17 +284,17 @@ func (m ListModel) renderStyledRow(cols listColumns, c runtime.ContainerInfo, ag
 	parts := make([]string, 0, 5)
 	parts = append(parts, fitCol(c.Name, cols.name))
 	if cols.pod > 0 {
-		parts = append(parts, listDimStyle.Render(fitCol(c.PodName, cols.pod)))
+		parts = append(parts, tui.DimStyle.Render(fitCol(c.PodName, cols.pod)))
 	}
 	if cols.ns > 0 {
-		parts = append(parts, listDimStyle.Render(fitCol(c.Namespace, cols.ns)))
+		parts = append(parts, tui.DimStyle.Render(fitCol(c.Namespace, cols.ns)))
 	}
 	if cols.state > 0 {
 		stateStyle := lipgloss.NewStyle().Foreground(tui.StateColor(c.State))
 		parts = append(parts, stateStyle.Render(fitCol("● "+c.State, cols.state)))
 	}
 	if cols.age > 0 {
-		parts = append(parts, listDimStyle.Render(fitCol(age, cols.age)))
+		parts = append(parts, tui.DimStyle.Render(fitCol(age, cols.age)))
 	}
 	return "  " + strings.Join(parts, " ")
 }

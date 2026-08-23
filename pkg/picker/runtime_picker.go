@@ -51,18 +51,18 @@ func (m runtimeModel) View() string {
 
 	var b strings.Builder
 	b.WriteString(tui.BadgeStyle.Render(" " + tui.Logo + " containershell "))
-	b.WriteString(headerStyle.Render(" select a runtime"))
+	b.WriteString(tui.TitleStyle.Render(" select a runtime"))
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("↑/↓ move · Enter select · Esc cancel"))
+	b.WriteString(tui.DimStyle.Render("↑/↓ move · Enter select · Esc cancel"))
 	b.WriteString("\n\n")
 
 	for i, r := range m.runtimes {
 		if i == m.cursor {
 			line := fmt.Sprintf("▸ %-8s %s", runtimeLabel(r.RuntimeType), r.Endpoint)
-			b.WriteString(selectedStyle.Render(line))
+			b.WriteString(tui.SelectedStyle.Render(line))
 		} else {
 			b.WriteString("  " + fmt.Sprintf("%-8s", runtimeLabel(r.RuntimeType)))
-			b.WriteString(dimStyle.Render(" " + r.Endpoint))
+			b.WriteString(tui.DimStyle.Render(" " + r.Endpoint))
 		}
 		b.WriteString("\n")
 	}

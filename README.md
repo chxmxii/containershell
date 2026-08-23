@@ -54,6 +54,18 @@ The dashboard shows a live container list with filtering (`/`), sorting (`S`),
 per-container inspect/env/processes/network tabs, log and debug overlays, and
 one-key shell access (`Enter`). Press `?` inside for the full key map.
 
+### Themes
+
+Press `T` in the dashboard to open the theme selector — moving the cursor
+previews each theme live, `Enter` applies and saves it, `Esc` cancels. Built-in
+themes: `catppuccin` (default), `dracula`, `nord`, `gruvbox`, `tokyo-night`;
+each adapts to light and dark terminal backgrounds. The chosen theme is
+persisted to `~/.config/containershell/theme` and can be overridden per run:
+
+```bash
+containershell dashboard --theme nord
+```
+
 ## Debug toolkit
 
 Each subcommand operates on the resolved container's namespaces or cgroup directly.

@@ -28,9 +28,10 @@ type Model struct {
 	// Sub-models
 	list      ListModel
 	detail    DetailModel
-	statusBar StatusBarModel
-	actionBar ActionBarModel
-	overlay   *OverlayModel // nil when no overlay is active
+	statusBar   StatusBarModel
+	actionBar   ActionBarModel
+	overlay     *OverlayModel     // nil when no overlay is active
+	themePicker *ThemePickerModel // nil when the theme picker is closed
 
 	// State
 	focus  FocusPanel
@@ -130,6 +131,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// The theme picker is modal like the overlay.
+	if m.themePicker != nil {
+		if closed := m.themePicker.Update(msg); closed {
+			m.themePicker = nil
+			m.updateActionBarContext()
+		}
+		return m, nil
+	}
+
 	// While the list filter is capturing input, printable keys must reach the
 	// filter rather than trigger global shortcuts (typing "nginx" must not open
 	// the netstat overlay). Only Ctrl+C stays global.
@@ -148,6 +158,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "?":
 		m.openHelpOverlay()
+		return m, nil
+
+	case "T":
+		m.themePicker = NewThemePickerModel(m.width, m.height)
+		m.updateActionBarContext()
 		return m, nil
 
 	case "enter", "s":
@@ -191,6 +206,10 @@ func (m *Model) cycleFocus() {
 
 // updateActionBarContext sets the action bar shortcuts based on current state.
 func (m *Model) updateActionBarContext() {
+	if m.themePicker != nil {
+		m.actionBar.SetContext(ContextTheme)
+		return
+	}
 	if m.overlay != nil {
 		m.actionBar.SetContext(ContextOverlay)
 		return
@@ -217,6 +236,16 @@ func (m Model) routeToFocusedPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case FocusDetail:
 		var cmd tea.Cmd
 		m.detail, cmd = m.detail.Update(msg)
+		// The 1/2/3 keys put the detail panel into its loading state, but the
+		// panel has no runtime handle, so the debug command must be issued here.
+		switch msg.String() {
+		case "1", "2", "3":
+			if c := m.detail.container; c != nil {
+				cmd = m.detailDebugCmd(m.detail.view, c.ID)
+			} else {
+				m.detail.loading = false
+			}
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -320,6 +349,7 @@ func (m Model) buildHelpContent() string {
 	b.WriteString("\n")
 
 	section("Global")
+	row("T", "Theme selector")
 	row("?", "Show this help")
 	row("q/Ctrl+C", "Quit dashboard")
 
@@ -357,6 +387,10 @@ func (m Model) handleRuntimeInfo(msg runtimeInfoMsg) Model {
 
 // handleDebugOutput processes the result of a debug command execution.
 func (m Model) handleDebugOutput(msg debugOutputMsg) Model {
+	if msg.forDetail {
+		m.detail, _ = m.detail.Update(msg)
+		return m
+	}
 	if m.overlay != nil {
 		m.overlay.SetLoading(false)
 		if msg.err != nil {
@@ -388,6 +422,9 @@ func (m *Model) recomputeLayout() {
 
 	if m.overlay != nil {
 		m.overlay.SetDimensions(m.width, m.height)
+	}
+	if m.themePicker != nil {
+		m.themePicker.SetDimensions(m.width, m.height)
 	}
 }
 
@@ -423,6 +460,11 @@ func (m Model) View() string {
 	// If overlay is active, render it on top
 	if m.overlay != nil {
 		view = m.renderWithOverlay(view)
+	}
+
+	// The theme picker renders on top of everything.
+	if m.themePicker != nil {
+		view = m.themePicker.View()
 	}
 
 	return view
@@ -535,6 +577,28 @@ func (m Model) debugCmd(title string, fn func(ctx context.Context, rt runtime.Ru
 		defer cancel()
 		content, err := fn(ctx, m.rt, containerID)
 		return debugOutputMsg{title: title, content: content, err: err}
+	}
+}
+
+// detailDebugCmd returns a command that runs the debug function for a detail
+// tab and routes the result back to the detail panel.
+func (m Model) detailDebugCmd(view DetailView, containerID string) tea.Cmd {
+	var fn func(ctx context.Context, rt runtime.Runtime, containerID string) (string, error)
+	switch view {
+	case ViewEnv:
+		fn = debug.EnvOutput
+	case ViewTop:
+		fn = debug.TopOutput
+	case ViewNetstat:
+		fn = debug.NetstatOutput
+	default:
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		content, err := fn(ctx, m.rt, containerID)
+		return debugOutputMsg{content: content, err: err, forDetail: true, view: view}
 	}
 }
 
