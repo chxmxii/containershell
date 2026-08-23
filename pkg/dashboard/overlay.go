@@ -208,12 +208,16 @@ func (o *OverlayModel) View() string {
 	}
 
 	// Indent content one column from the border; Panel clips each line.
+	// Build a fresh slice: contentLines may alias o.lines, and mutating it in
+	// place would prepend another space on every render, walking the text out
+	// of the box.
+	indented := make([]string, len(contentLines))
 	for i, line := range contentLines {
-		contentLines[i] = " " + line
+		indented[i] = " " + line
 	}
 
 	box := tui.Panel(boxWidth, boxHeight, title, o.scrollIndicator(), true,
-		strings.Join(contentLines, "\n"))
+		strings.Join(indented, "\n"))
 
 	return centerBox(box, o.width, o.height)
 }

@@ -19,6 +19,8 @@ const (
 	ContextOverlay
 	// ContextHelp is the context when the help overlay is open.
 	ContextHelp
+	// ContextTheme is the context when the theme picker is open.
+	ContextTheme
 )
 
 // Shortcut represents a single key-label pair displayed in the action bar.
@@ -56,6 +58,7 @@ func (m *ActionBarModel) SetContext(ctx ActionContext) {
 			{Key: "S", Label: "sort"},
 			{Key: "r", Label: "refresh"},
 			{Key: "Tab", Label: "panel"},
+			{Key: "T", Label: "theme"},
 			{Key: "?", Label: "help"},
 			{Key: "q", Label: "quit"},
 		}
@@ -80,6 +83,12 @@ func (m *ActionBarModel) SetContext(ctx ActionContext) {
 		m.shortcuts = []Shortcut{
 			{Key: "Esc", Label: "close"},
 			{Key: "?", Label: "close"},
+		}
+	case ContextTheme:
+		m.shortcuts = []Shortcut{
+			{Key: "↑↓", Label: "preview"},
+			{Key: "Enter", Label: "apply"},
+			{Key: "Esc", Label: "cancel"},
 		}
 	}
 }

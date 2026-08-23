@@ -11,14 +11,9 @@ import (
 	"github.com/containershell/containershell/pkg/tui"
 )
 
-var (
-	selectedStyle = tui.SelectedStyle
-	normalStyle   = lipgloss.NewStyle()
-	headerStyle   = tui.TitleStyle
-	colHeadStyle  = tui.DimStyle.Bold(true)
-	filterStyle   = lipgloss.NewStyle().Bold(true).Foreground(tui.ColorYellow)
-	dimStyle      = tui.DimStyle
-)
+// Styles are read from pkg/tui at render time (never cached in package vars)
+// so a theme switch takes effect immediately.
+var normalStyle = lipgloss.NewStyle()
 
 type model struct {
 	containers []runtime.ContainerInfo
@@ -139,9 +134,9 @@ func (m model) View() string {
 	b.WriteString("\n")
 
 	if m.filter != "" {
-		b.WriteString(filterStyle.Render(clipLine("/ "+m.filter+"█", m.width)))
+		b.WriteString(tui.FilterStyle.Render(clipLine("/ "+m.filter+"█", m.width)))
 	} else {
-		b.WriteString(dimStyle.Render(clipLine("type to filter · ↑/↓ move · Enter select · Esc cancel", m.width)))
+		b.WriteString(tui.DimStyle.Render(clipLine("type to filter · ↑/↓ move · Enter select · Esc cancel", m.width)))
 	}
 	b.WriteString("\n\n")
 
@@ -149,11 +144,11 @@ func (m model) View() string {
 	// header with it so header and rows stay aligned and never wrap.
 	cols := m.columns()
 	header := renderRow(cols, "  ", "NAME", "POD", "NAMESPACE", "IMAGE", "AGE")
-	b.WriteString(colHeadStyle.Render(clipLine(header, m.width)))
+	b.WriteString(tui.ColHeadStyle.Render(clipLine(header, m.width)))
 	b.WriteString("\n")
 
 	if len(m.filtered) == 0 {
-		b.WriteString(dimStyle.Render(clipLine("  ∅ no containers match the filter", m.width)))
+		b.WriteString(tui.DimStyle.Render(clipLine("  ∅ no containers match the filter", m.width)))
 		return b.String()
 	}
 
@@ -171,7 +166,7 @@ func (m model) View() string {
 			// Selected row: marker plus a full-width highlight bar. fitCol pads to
 			// the terminal width, which also guarantees the row cannot wrap.
 			line := renderRow(cols, "▸ ", c.Name, c.PodName, c.Namespace, c.Image, age)
-			b.WriteString(selectedStyle.Render(fitCol(line, m.width)))
+			b.WriteString(tui.SelectedStyle.Render(fitCol(line, m.width)))
 		} else {
 			// Hard guard: never exceed the terminal width, so a row can never wrap
 			// onto a second line and desync the cursor from what's shown.
@@ -181,7 +176,7 @@ func (m model) View() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(dimStyle.Render(clipLine(fmt.Sprintf("  %d/%d", m.cursor+1, len(m.filtered)), m.width)))
+	b.WriteString(tui.DimStyle.Render(clipLine(fmt.Sprintf("  %d/%d", m.cursor+1, len(m.filtered)), m.width)))
 
 	return b.String()
 }
@@ -189,7 +184,7 @@ func (m model) View() string {
 // headerLine renders the picker title: a product badge plus the prompt.
 func headerLine(width int) string {
 	return clipLine(tui.BadgeStyle.Render(" "+tui.Logo+" containershell ")+
-		headerStyle.Render(" select a container"), width)
+		tui.TitleStyle.Render(" select a container"), width)
 }
 
 // pickerChrome is the number of non-row lines View always renders: the title,

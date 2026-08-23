@@ -22,10 +22,15 @@ type runtimeInfoMsg struct {
 }
 
 // debugOutputMsg carries the result of a debug command execution.
+// forDetail routes the result to the detail panel instead of the overlay;
+// view identifies which detail tab requested it, so stale responses (the tab
+// changed while the command ran) can be dropped.
 type debugOutputMsg struct {
-	title   string
-	content string
-	err     error
+	title     string
+	content   string
+	err       error
+	forDetail bool
+	view      DetailView
 }
 
 // shellDoneMsg is sent when a shell session ends.

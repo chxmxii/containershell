@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/containershell/containershell/pkg/runtime"
 	"github.com/containershell/containershell/pkg/tui"
 )
@@ -21,15 +20,8 @@ const (
 	ViewNetstat
 )
 
-// Styles for the detail panel.
-var (
-	detailKeyStyle       = tui.KeyStyle
-	detailValueStyle     = lipgloss.NewStyle()
-	detailDimStyle       = tui.DimStyle
-	detailErrStyle       = tui.ErrStyle
-	detailTabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(tui.ColorOnAccent).Background(tui.ColorAccent)
-	detailTabStyle       = tui.DimStyle
-)
+// Styles are read from pkg/tui at render time (never cached in package vars)
+// so a theme switch takes effect immediately.
 
 // DetailModel is the detail panel sub-model that displays container info and debug command output.
 type DetailModel struct {
@@ -51,7 +43,13 @@ func NewDetailModel() DetailModel {
 }
 
 // SetContainer updates the displayed container and resets to the info view.
+// When the same container is set again (e.g. the periodic refresh), only its
+// data is updated so the active tab, content, and scroll survive.
 func (m *DetailModel) SetContainer(c *runtime.ContainerInfo) {
+	if c != nil && m.container != nil && c.ID == m.container.ID {
+		m.container = c
+		return
+	}
 	m.container = c
 	m.view = ViewInfo
 	m.content = ""
@@ -102,6 +100,11 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 		}
 
 	case debugOutputMsg:
+		// Drop responses that are not for this panel or arrived after the user
+		// switched tabs (or the selection reset the panel to the info view).
+		if !msg.forDetail || msg.view != m.view {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
@@ -126,14 +129,14 @@ func (m DetailModel) View() string {
 
 	// No container selected
 	if m.container == nil {
-		b.WriteString(detailDimStyle.Render("  ◇ select a container from the list"))
+		b.WriteString(tui.DimStyle.Render("  ◇ select a container from the list"))
 		b.WriteString("\n")
 		return b.String()
 	}
 
 	// Loading state
 	if m.loading {
-		b.WriteString(detailDimStyle.Render("  … loading"))
+		b.WriteString(tui.DimStyle.Render("  … loading"))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -142,7 +145,7 @@ func (m DetailModel) View() string {
 	if m.err != nil {
 		cmdName := m.viewCommandName()
 		errLine := fmt.Sprintf("  ✗ %s: %s", cmdName, m.err.Error())
-		b.WriteString(detailErrStyle.Render(clipLine(errLine, m.width)))
+		b.WriteString(tui.ErrStyle.Render(clipLine(errLine, m.width)))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -200,9 +203,9 @@ func (m DetailModel) renderTabs() string {
 	parts := make([]string, 0, len(tabs))
 	for _, t := range tabs {
 		if t.view == m.view {
-			parts = append(parts, detailTabActiveStyle.Render(" "+t.label+" "))
+			parts = append(parts, tui.TabActiveStyle.Render(" "+t.label+" "))
 		} else {
-			parts = append(parts, detailTabStyle.Render(" "+t.label+" "))
+			parts = append(parts, tui.DimStyle.Render(" "+t.label+" "))
 		}
 	}
 	return strings.Join(parts, " ")
@@ -234,11 +237,11 @@ func (m DetailModel) renderInfoView() string {
 
 	// Labels
 	if len(c.Labels) > 0 {
-		b.WriteString(detailKeyStyle.Render("Labels:"))
+		b.WriteString(tui.KeyStyle.Render("Labels:"))
 		b.WriteString("\n")
 		for k, v := range c.Labels {
 			b.WriteString("  ")
-			b.WriteString(detailValueStyle.Render(fmt.Sprintf("%s: %s", k, v)))
+			b.WriteString(fmt.Sprintf("%s: %s", k, v))
 			b.WriteString("\n")
 		}
 	} else {
@@ -250,9 +253,9 @@ func (m DetailModel) renderInfoView() string {
 
 // writeField writes a formatted key-value line to the builder.
 func writeField(b *strings.Builder, key, value string) {
-	b.WriteString(detailKeyStyle.Render(fmt.Sprintf("%-10s", key+":")))
+	b.WriteString(tui.KeyStyle.Render(fmt.Sprintf("%-10s", key+":")))
 	b.WriteString(" ")
-	b.WriteString(detailValueStyle.Render(value))
+	b.WriteString(value)
 	b.WriteString("\n")
 }
 
