@@ -30,5 +30,8 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Cross-compile darwin (release targets)
+        run: GOOS=darwin GOARCH=arm64 go build ./...
+
       - name: Test
         run: go test ./... -race -count=1
