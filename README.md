@@ -19,7 +19,7 @@ No Go toolchain needed. Grab the latest tarball for your platform from the
 [releases page](https://github.com/chxmxii/containershell/releases), or:
 
 ```bash
-VERSION=v0.1.3                                              # latest release
+VERSION=v0.1.4                                              # latest release
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')                 # linux / darwin
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')   # amd64 / arm64
 curl -sL "https://github.com/chxmxii/containershell/releases/download/${VERSION}/containershell-${VERSION}-${OS}-${ARCH}.tar.gz" | tar xz
