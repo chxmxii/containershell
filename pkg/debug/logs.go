@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/containershell/containershell/pkg/runtime"
 )
@@ -29,9 +30,16 @@ func LogsOutput(ctx context.Context, rt runtime.Runtime, containerID string, tai
 		tail = 100
 	}
 
-	// Primary: the runtime's native logs.
+	// Primary: the runtime's native logs. A successful call is authoritative,
+	// including when the container simply has not written anything yet —
+	// falling through on empty output would surface fallback errors (e.g.
+	// nsenter permission failures) for perfectly healthy containers.
 	var buf bytes.Buffer
-	if err := rt.ContainerLogs(ctx, containerID, false, tail, &buf); err == nil && buf.Len() > 0 {
+	logErr := rt.ContainerLogs(ctx, containerID, false, tail, &buf)
+	if logErr == nil {
+		if buf.Len() == 0 {
+			return "(no log output)", nil
+		}
 		return buf.String(), nil
 	}
 
@@ -70,8 +78,11 @@ func LogsOutput(ctx context.Context, rt runtime.Runtime, containerID string, tai
 	result, _ := io.ReadAll(pr)
 	pr.Close()
 
-	if pipeErr := <-errCh; pipeErr != nil && len(result) == 0 {
-		return "", fmt.Errorf("failed to retrieve logs: %w", pipeErr)
+	// On failure the captured output is nsenter's own stderr, not log
+	// content — never return it as if it were the container's logs.
+	if pipeErr := <-errCh; pipeErr != nil {
+		return "", fmt.Errorf("failed to retrieve logs: native log API (%v); nsenter fallback (%v — needs root): %s",
+			logErr, pipeErr, strings.TrimSpace(string(result)))
 	}
 
 	return string(result), nil
