@@ -23,14 +23,13 @@ func Top(ctx context.Context, rt runtime.Runtime, containerID string) error {
 		return nil
 	}
 
-	// Last resort: read from /proc
-	pid, pidErr := rt.ContainerPid(ctx, containerID)
-	if pidErr != nil {
-		return fmt.Errorf("all methods failed: exec (%v), nsenter (%v), pid lookup (%v)", err, err, pidErr)
+	// Last resort: walk the host /proc process tree (works without root and
+	// without a ps binary in the image).
+	out, err := topFromProc(ctx, rt, containerID, err)
+	if err != nil {
+		return err
 	}
-
-	fmt.Printf("PID\tCMD\n")
-	fmt.Printf("(Container init PID on host: %d — use /proc/%d/root/proc for detailed listing)\n", pid, pid)
+	fmt.Print(out)
 	return nil
 }
 
@@ -48,11 +47,22 @@ func TopOutput(ctx context.Context, rt runtime.Runtime, containerID string) (str
 		return string(output), nil
 	}
 
-	// Last resort: read from /proc
+	// Last resort: walk the host /proc process tree (works without root and
+	// without a ps binary in the image).
+	return topFromProc(ctx, rt, containerID, err)
+}
+
+// topFromProc resolves the container's init PID and lists its process tree
+// from the host /proc. nsErr is the earlier nsenter failure, kept for context
+// in the combined error.
+func topFromProc(ctx context.Context, rt runtime.Runtime, containerID string, nsErr error) (string, error) {
 	pid, pidErr := rt.ContainerPid(ctx, containerID)
 	if pidErr != nil {
-		return "", fmt.Errorf("all methods failed: exec (%v), nsenter (%v), pid lookup (%v)", err, err, pidErr)
+		return "", fmt.Errorf("all methods failed: no ps in image, nsenter (%v — needs root), pid lookup (%v)", nsErr, pidErr)
 	}
-
-	return fmt.Sprintf("PID\tCMD\n(Container init PID on host: %d — use /proc/%d/root/proc for detailed listing)\n", pid, pid), nil
+	out, procErr := ProcTop(int(pid))
+	if procErr != nil {
+		return "", fmt.Errorf("all methods failed: no ps in image, nsenter (%v — needs root), /proc walk (%v)", nsErr, procErr)
+	}
+	return out, nil
 }
