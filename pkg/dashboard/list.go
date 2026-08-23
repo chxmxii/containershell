@@ -27,16 +27,16 @@ const (
 
 // ListModel is the container list panel sub-model.
 type ListModel struct {
-	containers []runtime.ContainerInfo
-	filtered   []runtime.ContainerInfo
-	cursor     int
-	offset     int // scroll offset for viewport
-	filter     string
-	filterMode bool
-	sortField  SortField
-	height     int
-	width      int
-	err        error
+	containers  []runtime.ContainerInfo
+	filtered    []runtime.ContainerInfo
+	cursor      int
+	offset      int // scroll offset for viewport
+	filter      string
+	filterMode  bool
+	sortField   SortField
+	height      int
+	width       int
+	err         error
 	lastRefresh time.Time
 }
 
@@ -485,5 +485,3 @@ func fitCol(s string, w int) string { return tui.FitCol(s, w) }
 // clipLine truncates s to at most w display columns to prevent line wrapping.
 // A non-positive width returns s unchanged (the width is not yet known).
 func clipLine(s string, w int) string { return tui.ClipLine(s, w) }
-
-

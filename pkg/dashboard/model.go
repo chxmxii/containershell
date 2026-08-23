@@ -19,15 +19,15 @@ import (
 type FocusPanel int
 
 const (
-	FocusList   FocusPanel = iota
+	FocusList FocusPanel = iota
 	FocusDetail
 )
 
 // Model is the root bubbletea model for the TUI dashboard.
 type Model struct {
 	// Sub-models
-	list      ListModel
-	detail    DetailModel
+	list        ListModel
+	detail      DetailModel
 	statusBar   StatusBarModel
 	actionBar   ActionBarModel
 	overlay     *OverlayModel     // nil when no overlay is active

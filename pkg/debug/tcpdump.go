@@ -30,5 +30,8 @@ func Tcpdump(ctx context.Context, rt runtime.Runtime, containerID string, iface 
 	}
 
 	fmt.Fprintf(os.Stderr, "Capturing packets in container's network namespace (Ctrl+C to stop)...\n")
-	return HostNsRun(ctx, rt, containerID, namespace.Net, "tcpdump", args...)
+	if err := HostNsRun(ctx, rt, containerID, namespace.Net, "tcpdump", args...); err != nil {
+		return fmt.Errorf("tcpdump in container netns failed: %w (requires root — try sudo)", err)
+	}
+	return nil
 }
