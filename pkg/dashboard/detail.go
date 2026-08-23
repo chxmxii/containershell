@@ -14,7 +14,7 @@ import (
 type DetailView int
 
 const (
-	ViewInfo    DetailView = iota
+	ViewInfo DetailView = iota
 	ViewEnv
 	ViewTop
 	ViewNetstat

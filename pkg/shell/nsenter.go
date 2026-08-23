@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/containershell/containershell/pkg/runtime"
 	"github.com/containershell/containershell/pkg/namespace"
+	"github.com/containershell/containershell/pkg/runtime"
 )
 
 // NsenterStrategy enters the container's namespaces directly using nsenter.
